@@ -2,6 +2,7 @@ use anyhow::Result;
 use futures::future::join_all;
 use crate::config::SynapseConfig;
 use crate::inference::{InferenceEngine, GenerationResult};
+use crate::learn::CloudFallback;
 use crate::memory::KnowledgeGraph;
 use crate::openai::Message;
 use super::coordinator::Coordinator;
@@ -9,9 +10,11 @@ use super::synthesizer::Synthesizer;
 
 /// Top-level swarm orchestrator — decides single vs multi-specialist routing
 /// Uses Hebbian routing and parallel specialist execution for swarm mode
+/// Cloud fallback: when confidence is low, routes to cloud and learns from the response
 pub struct Orchestrator {
     coordinator: Coordinator,
     synthesizer: Synthesizer,
+    cloud_fallback: Option<CloudFallback>,
 }
 
 impl Orchestrator {
@@ -19,6 +22,7 @@ impl Orchestrator {
         Self {
             coordinator: Coordinator::new(config),
             synthesizer: Synthesizer::new(),
+            cloud_fallback: CloudFallback::new(&config.cloud),
         }
     }
 
@@ -63,6 +67,51 @@ impl Orchestrator {
         match routing {
             RoutingDecision::Single { specialist, confidence } => {
                 tracing::info!("Routing to specialist: {specialist} (confidence: {confidence:.2})");
+
+                // Cloud fallback: if confidence is too low and cloud is available,
+                // generate locally first, then ask cloud and learn from the difference
+                let cloud_threshold = CloudFallback::confidence_threshold();
+                if confidence < cloud_threshold {
+                    if let Some(ref fallback) = self.cloud_fallback {
+                        tracing::info!(
+                            "⚡ Low confidence ({confidence:.2} < {cloud_threshold:.2}) — trying cloud fallback"
+                        );
+
+                        // Try local generation first (we still want the local attempt for DPO)
+                        let local_result = engine.generate(&context, Some(&specialist), max_tokens, temperature).await;
+                        let local_text = local_result.as_ref().ok().map(|r| r.text.as_str());
+
+                        // Ask cloud for the better answer
+                        if let Some(kg) = knowledge {
+                            match fallback.fallback(last_message, &specialist, local_text, kg).await {
+                                Ok(cloud_result) => {
+                                    tracing::info!(
+                                        "☁️ Cloud fallback used {}, learned={}",
+                                        cloud_result.model_used, cloud_result.learned
+                                    );
+                                    // Return the cloud's better response
+                                    return Ok(GenerationResult {
+                                        text: cloud_result.text,
+                                        prompt_tokens: 0,
+                                        completion_tokens: 0,
+                                        total_tokens: 0,
+                                        tok_per_sec: 0.0,
+                                        duration_ms: 0,
+                                    });
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Cloud fallback failed: {e}, using local response");
+                                    // Fall through to local response
+                                }
+                            }
+                        }
+
+                        // Cloud failed, return local result if we have one
+                        if let Ok(result) = local_result {
+                            return Ok(result);
+                        }
+                    }
+                }
 
                 let result = engine.generate(&context, Some(&specialist), max_tokens, temperature).await?;
 

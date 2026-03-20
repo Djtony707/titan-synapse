@@ -37,6 +37,8 @@ pub async fn run(config: SynapseConfig, port: u16) -> Result<()> {
     }));
 
     let app = Router::new()
+        // Web Dashboard — normal people can open a browser and chat
+        .route("/", get(dashboard))
         // OpenAI-compatible endpoints
         .route("/v1/chat/completions", post(crate::openai::chat_completions))
         .route("/v1/models", get(crate::openai::list_models))
@@ -51,6 +53,7 @@ pub async fn run(config: SynapseConfig, port: u16) -> Result<()> {
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
     tracing::info!("TITAN Synapse ready at http://0.0.0.0:{port}");
+    tracing::info!("Dashboard: http://0.0.0.0:{port}/");
     tracing::info!("OpenAI-compatible API: http://0.0.0.0:{port}/v1/chat/completions");
 
     axum::serve(listener, app)
@@ -58,6 +61,10 @@ pub async fn run(config: SynapseConfig, port: u16) -> Result<()> {
         .await?;
 
     Ok(())
+}
+
+async fn dashboard() -> axum::response::Html<&'static str> {
+    axum::response::Html(crate::dashboard::DASHBOARD_HTML)
 }
 
 async fn health() -> &'static str {

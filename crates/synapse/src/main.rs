@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+mod dashboard;
 mod inference;
 mod server;
 mod openai;
@@ -68,6 +69,23 @@ enum Commands {
     },
     /// Run standardized evaluation (MMLU, HumanEval, MT-Bench, Safety)
     Eval,
+    /// Community Specialist Hub — share and discover trained specialists
+    Hub {
+        #[command(subcommand)]
+        command: HubCommands,
+    },
+    /// Train our own Synapse model from scratch (SFT + DPO + GGUF export)
+    Train {
+        /// Training stage: full, sft, dpo, export
+        #[arg(short, long, default_value = "full")]
+        stage: String,
+        /// Base model architecture (Apache 2.0 licensed, we fine-tune into OUR model)
+        #[arg(short, long, default_value = "Qwen/Qwen2.5-3B")]
+        base_model: String,
+        /// Output model name
+        #[arg(short, long, default_value = "synapse-3b")]
+        output: String,
+    },
     /// Start the server (alias for serve)
     Up {
         /// Port to listen on
@@ -82,6 +100,27 @@ enum LearnCommands {
     Status,
     /// Force training now
     TrainNow,
+}
+
+#[derive(Subcommand)]
+enum HubCommands {
+    /// Search for community specialists
+    Search {
+        /// Search query
+        query: String,
+    },
+    /// Install a specialist from HuggingFace
+    Install {
+        /// HuggingFace repo (e.g., user/synapse-python-expert)
+        repo: String,
+    },
+    /// Push your trained specialist to HuggingFace
+    Push {
+        /// Specialist name to push
+        name: String,
+    },
+    /// List hub info and commands
+    List,
 }
 
 #[tokio::main]
@@ -132,6 +171,15 @@ async fn main() -> Result<()> {
         }
         Commands::Eval => {
             cli::eval::run(&cfg).await
+        }
+        Commands::Train { stage, base_model, output } => {
+            cli::train::run(&cfg, &stage, &base_model, &output).await
+        }
+        Commands::Hub { command } => match command {
+            HubCommands::Search { query } => cli::hub::search(&query).await,
+            HubCommands::Install { repo } => cli::hub::install(&cfg, &repo).await,
+            HubCommands::Push { name } => cli::hub::push(&cfg, &name).await,
+            HubCommands::List => cli::hub::list().await,
         }
     }
 }

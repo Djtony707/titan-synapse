@@ -6,3 +6,5 @@ pub mod import;
 pub mod learn;
 pub mod bench;
 pub mod eval;
+pub mod hub;
+pub mod train;
