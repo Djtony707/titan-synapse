@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::server::SharedState;
 use crate::streaming;
+use crate::memory::KnowledgeExtractor;
 
 #[derive(Debug, Deserialize)]
 pub struct ChatCompletionRequest {
@@ -131,6 +132,25 @@ async fn complete_response(
         Ok(result) => {
             // Log the assistant response
             let _ = state.knowledge.log_message(&session_id, "assistant", &result.text, None);
+
+            // Extract knowledge from the response (real-time learning)
+            let _ = KnowledgeExtractor::extract_and_store(
+                &state.knowledge, &result.text, "assistant",
+            );
+
+            // Check for user feedback patterns (preference learning)
+            if request.messages.len() >= 2 {
+                let prev_assistant = request.messages.iter().rev()
+                    .find(|m| m.role == "assistant")
+                    .map(|m| m.content.as_str())
+                    .unwrap_or("");
+                if let Some(user_msg) = request.messages.last() {
+                    let _ = KnowledgeExtractor::extract_preferences(
+                        &state.knowledge, &user_msg.content, prev_assistant, "general",
+                    );
+                }
+            }
+
             (result.text, Usage {
                 prompt_tokens: result.prompt_tokens,
                 completion_tokens: result.completion_tokens,

@@ -1,6 +1,7 @@
 use std::time::SystemTime;
 
 /// Token sampling strategies
+#[derive(Clone)]
 pub struct SamplerConfig {
     pub temperature: f32,
     pub top_p: f32,
