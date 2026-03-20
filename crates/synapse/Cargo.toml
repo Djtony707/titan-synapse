@@ -32,6 +32,7 @@ candle-nn = "0.8"
 candle-transformers = "0.8"
 tokenizers = "0.21"
 safetensors = "0.4"
+half = "2"
 memmap2 = "0.9"
 
 # GPU monitoring

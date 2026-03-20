@@ -181,13 +181,32 @@ impl InferenceEngine {
         })
     }
 
-    /// Select the best available model (prefer larger ones)
+    /// Select the best available model (prefer larger ones by file size heuristic)
     fn select_model(&self) -> Option<Arc<Mutex<LoadedModel>>> {
-        // Sort by name length descending (larger models have longer names like "3b" > "0.5b")
-        // In production, this would use actual parameter count
-        self.models.values()
-            .max_by_key(|_| 1) // For now, just pick any loaded model
-            .cloned()
+        // Rank models by size indicators in name: 3b > 1.5b > 0.5b
+        self.models.iter()
+            .max_by_key(|(name, _)| {
+                let name_lower = name.to_lowercase();
+                if name_lower.contains("7b") { 70 }
+                else if name_lower.contains("3b") { 30 }
+                else if name_lower.contains("1.5b") || name_lower.contains("1b") { 15 }
+                else if name_lower.contains("0.5b") || name_lower.contains("0.6b") { 5 }
+                else { 10 } // Unknown size — middle priority
+            })
+            .map(|(_, v)| v.clone())
+    }
+
+    /// Select a specific model by name (or partial match)
+    pub fn select_model_by_name(&self, name: &str) -> Option<Arc<Mutex<LoadedModel>>> {
+        let name_lower = name.to_lowercase();
+        // Exact match first
+        if let Some(model) = self.models.get(name) {
+            return Some(model.clone());
+        }
+        // Partial match
+        self.models.iter()
+            .find(|(k, _)| k.to_lowercase().contains(&name_lower))
+            .map(|(_, v)| v.clone())
     }
 
     /// Generate with streaming (returns token-by-token)
@@ -227,6 +246,7 @@ impl InferenceEngine {
                         path,
                         rank: 16,
                         loaded: false,
+                        tensors: None,
                     });
                 }
             }

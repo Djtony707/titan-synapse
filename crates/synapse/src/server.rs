@@ -42,8 +42,9 @@ pub async fn run(config: SynapseConfig, port: u16) -> Result<()> {
         .route("/v1/models", get(crate::openai::list_models))
         // Health
         .route("/health", get(health))
-        // Status
+        // Status + Metacognition
         .route("/api/status", get(api_status))
+        .route("/api/confidence", get(api_confidence))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -91,6 +92,37 @@ async fn api_status(
                 serde_json::json!({"pathway": p, "strength": s, "avg_score": avg})
             }).collect::<Vec<_>>(),
         },
+    }))
+}
+
+/// Metacognitive confidence report — what the system knows it's good (and bad) at
+async fn api_confidence(
+    state: axum::extract::State<SharedState>,
+) -> axum::Json<serde_json::Value> {
+    let state = state.read().await;
+
+    let specialist_confidence = state.knowledge.specialist_confidence_report().unwrap_or_default();
+    let pathways = state.knowledge.top_pathways(10).unwrap_or_default();
+
+    axum::Json(serde_json::json!({
+        "metacognition": {
+            "description": "Specialist confidence scores — the system knows what it knows",
+            "specialists": specialist_confidence,
+            "hebbian_pathways": pathways.iter().map(|(p, s, avg)| {
+                serde_json::json!({
+                    "pathway": p,
+                    "strength": s,
+                    "avg_score": avg,
+                    "description": format!("Pathway {} has been reinforced {} times", p, s)
+                })
+            }).collect::<Vec<_>>(),
+            "total_pathways": pathways.len(),
+            "learning_status": {
+                "preferences_collected": state.knowledge.total_preference_count().unwrap_or(0),
+                "conversations_logged": state.knowledge.conversation_count().unwrap_or(0),
+                "facts_known": state.knowledge.fact_count().unwrap_or(0),
+            }
+        }
     }))
 }
 

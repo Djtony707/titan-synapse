@@ -1,5 +1,6 @@
 use anyhow::Result;
 use rusqlite::Connection;
+use serde_json;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -235,6 +236,27 @@ impl KnowledgeGraph {
             |row| row.get(0),
         )?;
         Ok(count)
+    }
+
+    /// Metacognitive confidence report — per-specialist performance stats
+    pub fn specialist_confidence_report(&self) -> Result<Vec<serde_json::Value>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT specialist, domain, request_count, avg_score, avg_tok_per_sec
+             FROM specialist_stats ORDER BY avg_score DESC"
+        )?;
+
+        let results = stmt.query_map([], |row| {
+            Ok(serde_json::json!({
+                "specialist": row.get::<_, String>(0)?,
+                "domain": row.get::<_, String>(1)?,
+                "requests": row.get::<_, i64>(2)?,
+                "avg_score": row.get::<_, f64>(3)?,
+                "avg_tok_per_sec": row.get::<_, f64>(4)?,
+            }))
+        })?.filter_map(|r| r.ok()).collect();
+
+        Ok(results)
     }
 
     /// Get total preference pairs count
