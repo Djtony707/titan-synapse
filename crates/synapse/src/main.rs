@@ -66,6 +66,8 @@ enum Commands {
         #[arg(short, long)]
         model: Option<String>,
     },
+    /// Run standardized evaluation (MMLU, HumanEval, MT-Bench, Safety)
+    Eval,
     /// Start the server (alias for serve)
     Up {
         /// Port to listen on
@@ -127,6 +129,9 @@ async fn main() -> Result<()> {
         },
         Commands::Bench { model } => {
             cli::bench::run(&cfg, model.as_deref()).await
+        }
+        Commands::Eval => {
+            cli::eval::run(&cfg).await
         }
     }
 }

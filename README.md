@@ -14,7 +14,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-2024_Edition-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-20%2F20_Passing-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/Tests-31%2F31_Passing-brightgreen.svg)](#tests)
 [![CUDA](https://img.shields.io/badge/CUDA-12.8_(Blackwell)-76B900.svg)](https://developer.nvidia.com/cuda-toolkit)
 
 [Quick Start](#-quick-start) · [How It Works](#-how-it-works) · [Architecture](#-architecture) · [Tested Results](#-tested-results) · [Configuration](#%EF%B8%8F-configuration) · [Contributing](#-contributing)
@@ -42,7 +42,8 @@ No cloud. No API keys. No telemetry. One binary. Your hardware. Your data. Perio
 - **Specialist Swarm with Hebbian Routing** — A coordinator routes queries to the right specialist(s). Simple question? One model. Complex task? The swarm convenes **in parallel**. Routing weights strengthen with use.
 - **Metacognitive Confidence** — The system knows what it knows. Each specialist tracks its own performance per domain. Low confidence? Route to cloud fallback. High confidence? Handle locally at 100 tok/s.
 - **Continuous Learning** — QLoRA + DPO self-improvement pipeline via Python sidecar. Every conversation generates training signal. Your model gets smarter the more you use it.
-- **Live Knowledge Graph** — SQLite-backed graph that updates in real-time during conversations. Stores facts, conversation history, and DPO preference pairs.
+- **Hallucination Detection** — Cross-references every response against the knowledge graph. Contradictions are flagged. The model knows what it doesn't know.
+- **Live Knowledge Graph** — SQLite-backed graph that updates in real-time during conversations. Auto-extracts facts ("Rust is a programming language" → stored as triple). Stores facts, conversation history, and DPO preference pairs.
 - **Own Model Format (.synapse)** — Bundles base model + LoRA adapters + knowledge graph + training data + agent config into a single shareable file.
 - **OpenAI-Compatible API** — Drop-in replacement. Point your existing tools at `localhost:6900` and everything just works. SSE streaming included.
 - **Single Binary** — `cargo build --release` gives you one binary. No Python environment required for inference. No Docker. No "please install these 47 things first."
@@ -218,7 +219,7 @@ That's a **5x speedup** on GPU with CUDA 12.8 (Blackwell). And this is a quantiz
 | Test | Result | Details |
 |------|--------|---------|
 | `cargo build --release` | PASS | Clean compilation, Rust 2024 edition |
-| `cargo test` | **20/20 passing** | Config, sampler, KV cache, knowledge graph, manifest, packer, Hebbian, coordinator routing, LoRA |
+| `cargo test` | **31/31 passing** | Config, sampler, KV cache, knowledge graph, manifest, packer, Hebbian, coordinator routing, LoRA, extractor, hallucination |
 | `synapse bench` | PASS | 4 prompts, 759 tokens, 23 tok/s average (CPU) |
 | `synapse status` | PASS | Shows GPU info, VRAM usage, specialist list |
 | `GET /health` | PASS | Returns "ok" |
@@ -240,7 +241,7 @@ That's a **5x speedup** on GPU with CUDA 12.8 (Blackwell). And this is a quantiz
 ### Unit Tests
 
 ```
-running 20 tests
+running 31 tests
 test config::tests::test_default_config ... ok
 test config::tests::test_config_serialization ... ok
 test config::tests::test_load_missing_config ... ok
@@ -250,6 +251,8 @@ test inference::sampler::tests::test_stochastic_sampling ... ok
 test inference::kv_cache::tests::test_cache_allocation ... ok
 test inference::lora::tests::test_lora_adapter_placeholder ... ok
 test inference::lora::tests::test_lora_adapter_with_tensors ... ok
+test inference::speculative::tests::test_speculative_decoder_creation ... ok
+test inference::speculative::tests::test_draft_length_clamping ... ok
 test swarm::coordinator::tests::test_single_routing ... ok
 test swarm::coordinator::tests::test_swarm_routing ... ok
 test swarm::coordinator::tests::test_default_routing ... ok
@@ -257,11 +260,20 @@ test memory::graph::tests::test_knowledge_graph ... ok
 test memory::graph::tests::test_preferences ... ok
 test memory::graph::tests::test_hebbian_routing ... ok
 test memory::graph::tests::test_specialist_stats ... ok
+test memory::extractor::tests::test_extract_is_pattern ... ok
+test memory::extractor::tests::test_extract_verb_patterns ... ok
+test memory::extractor::tests::test_extract_preferences_positive ... ok
+test memory::extractor::tests::test_extract_preferences_negative ... ok
+test memory::extractor::tests::test_empty_text ... ok
+test memory::hallucination::tests::test_verify_correct_claim ... ok
+test memory::hallucination::tests::test_verify_unknown_claim ... ok
+test memory::hallucination::tests::test_word_overlap ... ok
+test memory::hallucination::tests::test_empty_response ... ok
 test format::manifest::tests::test_manifest_creation ... ok
 test format::manifest::tests::test_manifest_serialization ... ok
 test format::packer::tests::test_pack_and_unpack ... ok
 test format::packer::tests::test_list_bundles ... ok
-test result: ok. 20 passed; 0 failed; 0 ignored
+test result: ok. 31 passed; 0 failed; 0 ignored
 ```
 
 ---
@@ -352,7 +364,7 @@ This thing is early. There's a lot to build and a lot to break.
 git clone https://github.com/Djtony707/titan-synapse
 cd titan-synapse
 cargo build
-cargo test  # 20/20 should pass
+cargo test  # 31/31 should pass
 
 # Run with debug logging
 RUST_LOG=debug cargo run -- serve
@@ -380,6 +392,10 @@ RUST_LOG=debug cargo run -- serve
 - [x] Smart model selection (prefers larger models when available)
 - [x] Real LoRA adapter loading via SafeTensors (f32, f16, bf16)
 - [x] Conversation context threading (multi-turn awareness)
+- [x] Real-time knowledge extraction from conversations
+- [x] Hallucination detection (cross-reference against knowledge graph)
+- [x] User feedback preference learning (DPO pair collection)
+- [ ] Standardized benchmarks (MMLU, HumanEval, MT-Bench)
 - [ ] LoRA adapter training + hot-swap during inference
 - [ ] Speculative decoding (2-3x speedup)
 - [ ] Continuous batching across specialists

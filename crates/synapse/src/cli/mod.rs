@@ -5,3 +5,4 @@ pub mod export;
 pub mod import;
 pub mod learn;
 pub mod bench;
+pub mod eval;
