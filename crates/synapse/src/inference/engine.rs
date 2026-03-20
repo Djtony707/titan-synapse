@@ -1,4 +1,5 @@
 use anyhow::Result;
+use candle_core::Device;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -6,6 +7,7 @@ use tokio::sync::Mutex;
 
 use crate::config::SynapseConfig;
 use super::model::LoadedModel;
+use super::sampler::SamplerConfig;
 use super::lora::LoraAdapter;
 
 /// Core inference engine — manages loaded models, adapters, and generation
@@ -18,27 +20,98 @@ pub struct InferenceEngine {
     models_dir: PathBuf,
     /// Adapters directory
     adapters_dir: PathBuf,
+    /// Device (CPU or CUDA)
+    device: Device,
 }
 
 impl InferenceEngine {
     pub fn new(config: &SynapseConfig) -> Result<Self> {
+        // Try CUDA first, fall back to CPU
+        let device = Device::cuda_if_available(0)
+            .unwrap_or(Device::Cpu);
+
+        tracing::info!("Inference device: {:?}", device);
+
         let mut engine = Self {
             models: HashMap::new(),
             adapters: HashMap::new(),
             models_dir: config.models_dir.clone(),
             adapters_dir: config.adapters_dir.clone(),
+            device,
         };
 
         // Scan for available adapters
         engine.scan_adapters()?;
 
+        // Auto-load any GGUF models found in models_dir
+        engine.scan_and_load_models()?;
+
         tracing::info!(
-            "Inference engine initialized. Models dir: {}, Adapters: {}",
-            config.models_dir.display(),
+            "Inference engine initialized. Models: {}, Adapters: {}",
+            engine.models.len(),
             engine.adapters.len()
         );
 
         Ok(engine)
+    }
+
+    /// Scan models directory and load any GGUF files found
+    fn scan_and_load_models(&mut self) -> Result<()> {
+        if !self.models_dir.exists() {
+            std::fs::create_dir_all(&self.models_dir)?;
+            return Ok(());
+        }
+
+        for entry in std::fs::read_dir(&self.models_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "gguf") {
+                let name = path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+
+                // Look for tokenizer.json next to the model or in parent
+                let tokenizer_path = self.find_tokenizer(&path);
+
+                if let Some(tok_path) = tokenizer_path {
+                    match LoadedModel::load(&name, &path, &tok_path, &self.device) {
+                        Ok(model) => {
+                            tracing::info!("Loaded model: {name}");
+                            self.models.insert(name, Arc::new(Mutex::new(model)));
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to load {name}: {e}");
+                        }
+                    }
+                } else {
+                    tracing::warn!(
+                        "GGUF model found but no tokenizer.json: {}. \
+                         Place tokenizer.json in the same directory.",
+                        path.display()
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Find tokenizer.json for a model
+    fn find_tokenizer(&self, model_path: &PathBuf) -> Option<PathBuf> {
+        // Check same directory
+        if let Some(parent) = model_path.parent() {
+            let tok = parent.join("tokenizer.json");
+            if tok.exists() {
+                return Some(tok);
+            }
+        }
+        // Check models_dir root
+        let tok = self.models_dir.join("tokenizer.json");
+        if tok.exists() {
+            return Some(tok);
+        }
+        None
     }
 
     /// Generate text from a prompt using a specific specialist
@@ -49,31 +122,37 @@ impl InferenceEngine {
         max_tokens: u32,
         temperature: f32,
     ) -> Result<String> {
-        // For now, return a placeholder that indicates the engine is working
-        // This will be replaced with actual candle inference
         let specialist_name = specialist.unwrap_or("general");
 
         tracing::debug!(
-            "Generating with specialist={specialist_name}, max_tokens={max_tokens}, temp={temperature}"
+            "Generating: specialist={specialist_name}, max_tokens={max_tokens}, temp={temperature}"
         );
 
-        // Check if we have the model loaded
-        if self.models.is_empty() {
+        // Find a loaded model to use
+        let model = if let Some(m) = self.models.values().next() {
+            m.clone()
+        } else {
             return Ok(format!(
-                "TITAN Synapse engine is running but no models are loaded yet. \
-                 Use `synapse pull qwen3-3b` to download a model. \
-                 Specialist '{specialist_name}' was selected for this query."
+                "TITAN Synapse is running but no models loaded. \
+                 Use `synapse pull qwen3-3b` to download a model, then restart. \
+                 Specialist '{specialist_name}' was selected for your query."
             ));
-        }
+        };
 
-        // TODO: Real inference with candle
-        // 1. Get or load base model
-        // 2. Apply LoRA adapter for specialist
-        // 3. Tokenize prompt
-        // 4. Run forward pass
-        // 5. Sample tokens
-        // 6. Decode and return
-        Ok(format!("[{specialist_name}] Inference placeholder — model loading coming next"))
+        let sampler = SamplerConfig {
+            temperature,
+            ..Default::default()
+        };
+
+        // Run inference in a blocking task (candle is CPU-bound)
+        let prompt = prompt.to_string();
+        let result = tokio::task::spawn_blocking(move || {
+            let mut model = model.blocking_lock();
+            model.generate(&prompt, max_tokens, &sampler)
+        })
+        .await??;
+
+        Ok(result)
     }
 
     /// Generate with streaming (returns token-by-token)
@@ -126,8 +205,7 @@ impl InferenceEngine {
     }
 
     /// Hot-swap a LoRA adapter for a specialist
-    pub async fn swap_adapter(&mut self, specialist: &str, adapter_path: &str) -> Result<()> {
-        tracing::info!("Hot-swapping adapter for specialist '{specialist}': {adapter_path}");
+    pub async fn swap_adapter(&mut self, _specialist: &str, _adapter_path: &str) -> Result<()> {
         // TODO: Implement actual adapter swap via candle
         Ok(())
     }
@@ -140,5 +218,10 @@ impl InferenceEngine {
     /// List available adapters
     pub fn available_adapters(&self) -> Vec<String> {
         self.adapters.keys().cloned().collect()
+    }
+
+    /// Check if any models are loaded
+    pub fn has_models(&self) -> bool {
+        !self.models.is_empty()
     }
 }

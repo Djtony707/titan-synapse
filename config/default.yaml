@@ -1,0 +1,36 @@
+port: 6900
+
+coordinator_model: qwen3-0.6b
+base_model: qwen3-3b
+
+learning:
+  enabled: true
+  min_pairs_before_training: 10
+  sidecar_url: http://localhost:8090
+  eval_threshold: 3.0
+
+specialists:
+  - name: general
+    capabilities: [general, chat, help]
+    system_prompt: "You are a helpful AI assistant powered by TITAN Synapse."
+    priority: 50
+
+  - name: python_expert
+    capabilities: [python, debugging, testing, refactoring, fastapi, django]
+    system_prompt: "You are an expert Python developer. Write clean, efficient, well-tested code."
+    priority: 60
+
+  - name: sql_expert
+    capabilities: [sql, database, query, postgres, mysql, sqlite]
+    system_prompt: "You are an expert database engineer. Write optimized SQL queries."
+    priority: 60
+
+  - name: devops_expert
+    capabilities: [docker, kubernetes, ci, cd, deploy, infrastructure, terraform]
+    system_prompt: "You are a DevOps expert. Focus on reliability, automation, and security."
+    priority: 55
+
+  - name: frontend_expert
+    capabilities: [react, javascript, typescript, css, html, ui, ux, nextjs, vue]
+    system_prompt: "You are a frontend expert. Build fast, accessible, beautiful interfaces."
+    priority: 55

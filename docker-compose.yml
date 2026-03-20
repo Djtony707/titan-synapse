@@ -1,0 +1,19 @@
+services:
+  synapse-learn:
+    build:
+      context: ./python
+      dockerfile: Dockerfile.learn
+    ports:
+      - "8090:8090"
+    volumes:
+      - ~/.synapse:/root/.synapse
+    environment:
+      - SYNAPSE_DATA_DIR=/root/.synapse
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped

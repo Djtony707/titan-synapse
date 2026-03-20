@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 /// Token sampling strategies
 pub struct SamplerConfig {
     pub temperature: f32,
@@ -17,6 +19,26 @@ impl Default for SamplerConfig {
     }
 }
 
+/// Simple fast RNG (xorshift64) — no external deps needed
+struct FastRng(u64);
+
+impl FastRng {
+    fn new() -> Self {
+        let seed = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+        Self(seed | 1) // ensure non-zero
+    }
+
+    fn next_f32(&mut self) -> f32 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        (self.0 as f32) / (u64::MAX as f32)
+    }
+}
+
 impl SamplerConfig {
     /// Sample a token from logits
     pub fn sample(&self, logits: &[f32]) -> u32 {
@@ -24,17 +46,17 @@ impl SamplerConfig {
             return 0;
         }
 
-        // Temperature scaling
-        let scaled: Vec<f32> = if self.temperature > 0.0 {
-            logits.iter().map(|&l| l / self.temperature).collect()
-        } else {
-            // Greedy: return argmax
+        // Greedy mode
+        if self.temperature <= 0.0 {
             return logits.iter()
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
                 .map(|(i, _)| i as u32)
                 .unwrap_or(0);
-        };
+        }
+
+        // Temperature scaling
+        let scaled: Vec<f32> = logits.iter().map(|&l| l / self.temperature).collect();
 
         // Softmax
         let max_val = scaled.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
@@ -58,14 +80,24 @@ impl SamplerConfig {
             }
         }
 
-        // Renormalize and sample
+        // Renormalize
         let total: f32 = filtered.iter().map(|(_, p)| p).sum();
         let normalized: Vec<(usize, f32)> = filtered.iter()
             .map(|(i, p)| (*i, p / total))
             .collect();
 
-        // Simple random sampling (use rand in production)
-        // For now, return highest probability token
+        // Random sampling
+        let mut rng = FastRng::new();
+        let r = rng.next_f32();
+        let mut cumulative = 0.0;
+        for (idx, prob) in &normalized {
+            cumulative += prob;
+            if r < cumulative {
+                return *idx as u32;
+            }
+        }
+
+        // Fallback to top token
         normalized.first()
             .map(|(i, _)| *i as u32)
             .unwrap_or(0)
@@ -87,5 +119,14 @@ mod tests {
     fn test_empty_logits() {
         let sampler = SamplerConfig::default();
         assert_eq!(sampler.sample(&[]), 0);
+    }
+
+    #[test]
+    fn test_stochastic_sampling() {
+        let sampler = SamplerConfig { temperature: 1.0, ..Default::default() };
+        let logits = vec![0.1, 0.5, 0.3, 0.8, 0.2];
+        // Should return a valid token index
+        let token = sampler.sample(&logits);
+        assert!(token < 5);
     }
 }
