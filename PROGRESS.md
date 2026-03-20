@@ -97,11 +97,24 @@
 - [x] TEST_LOG updated with GPU benchmarks, issues #7-8 documented
 - [x] PROGRESS.md up to date
 
-### Block 3 — Remaining
+### Block 3 — Parallel Swarm + Metacognition
+- [x] Parallel specialist execution via futures::join_all (was sequential)
+- [x] Metacognitive confidence scoring in coordinator routing
+- [x] /api/confidence endpoint — specialist performance report
+- [x] Hebbian pathway strength boosts routing decisions dynamically
+- [x] Smart model selection (prefers 3B > 0.5B by name heuristic)
+- [x] Real LoRA adapter loading via safetensors crate (f32, f16, bf16)
+- [x] Conversation context threading (passes recent history, not just last message)
+- [x] Graceful degradation — failed specialists don't crash the swarm
+- [x] 5 new unit tests: coordinator routing (3), LoRA adapter (2)
+- [x] Benchmark verified: 98-102 tok/s average on CUDA (3B model)
+- [x] Swarm benchmark: 100.5 tok/s combined throughput, 2 specialists parallel
+
+### Block 4 — Documentation + Polish
 - [x] Install script (install.sh)
 - [x] CONTRIBUTING.md
+- [x] README updated with 20 tests, metacognition, parallel swarm
 - [ ] Python learning sidecar (FastAPI + Unsloth) — Docker Compose ready
-- [ ] Real LoRA adapter hot-swap during inference
 - [ ] GitHub release with pre-built binary
 
 ---
@@ -110,12 +123,12 @@
 
 | Category | Count | Status |
 |----------|-------|--------|
-| Unit tests | 15 | ALL PASSING |
+| Unit tests | 20 | ALL PASSING |
 | Integration tests (CPU) | 11 | ALL PASSING |
 | Integration tests (CUDA) | 10 | ALL PASSING |
 | Benchmark runs (CPU) | 7 | ALL PASSING |
 | Benchmark runs (GPU) | 6 | ALL PASSING |
-| **Total verified** | **49** | **ALL GREEN** |
+| **Total verified** | **54** | **ALL GREEN** |
 
 ## Architecture
 

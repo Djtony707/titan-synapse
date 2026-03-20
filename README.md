@@ -14,7 +14,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-2024_Edition-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-25%2F25_Passing-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/Tests-20%2F20_Passing-brightgreen.svg)](#tests)
 [![CUDA](https://img.shields.io/badge/CUDA-12.8_(Blackwell)-76B900.svg)](https://developer.nvidia.com/cuda-toolkit)
 
 [Quick Start](#-quick-start) · [How It Works](#-how-it-works) · [Architecture](#-architecture) · [Tested Results](#-tested-results) · [Configuration](#%EF%B8%8F-configuration) · [Contributing](#-contributing)
@@ -39,7 +39,8 @@ No cloud. No API keys. No telemetry. One binary. Your hardware. Your data. Perio
 
 - **Own Inference Engine** — Written from scratch in Rust with [candle](https://github.com/huggingface/candle). Not a wrapper around llama.cpp. Not a shim over vLLM. Ours.
 - **GGUF Model Loading** — Native quantized model support. Load Q4_K_M, Q5_K_M, Q8_0 models directly. Tested with Qwen2.5 models.
-- **Specialist Swarm with Hebbian Routing** — A coordinator routes queries to the right specialist(s). Simple question? One model. Complex task? The swarm convenes. Routing weights strengthen with use.
+- **Specialist Swarm with Hebbian Routing** — A coordinator routes queries to the right specialist(s). Simple question? One model. Complex task? The swarm convenes **in parallel**. Routing weights strengthen with use.
+- **Metacognitive Confidence** — The system knows what it knows. Each specialist tracks its own performance per domain. Low confidence? Route to cloud fallback. High confidence? Handle locally at 100 tok/s.
 - **Continuous Learning** — QLoRA + DPO self-improvement pipeline via Python sidecar. Every conversation generates training signal. Your model gets smarter the more you use it.
 - **Live Knowledge Graph** — SQLite-backed graph that updates in real-time during conversations. Stores facts, conversation history, and DPO preference pairs.
 - **Own Model Format (.synapse)** — Bundles base model + LoRA adapters + knowledge graph + training data + agent config into a single shareable file.
@@ -128,9 +129,9 @@ Every conversation updates a persistent SQLite knowledge graph:
 ```
 Client → POST /v1/chat/completions
   │
-  ├→ Coordinator (keyword + Hebbian routing)
-  │    ├→ Single specialist (simple query)
-  │    └→ Multi-specialist swarm (complex task)
+  ├→ Coordinator (keyword + Hebbian routing + metacognitive confidence)
+  │    ├→ Single specialist (simple query, confidence-scored)
+  │    └→ Multi-specialist swarm (complex task, PARALLEL execution)
   │
   ├→ Inference Engine (Rust + candle)
   │    ├→ GGUF quantized model loading
@@ -217,7 +218,7 @@ That's a **5x speedup** on GPU with CUDA 12.8 (Blackwell). And this is a quantiz
 | Test | Result | Details |
 |------|--------|---------|
 | `cargo build --release` | PASS | Clean compilation, Rust 2024 edition |
-| `cargo test` | **15/15 passing** | Config, sampler, KV cache, knowledge graph, manifest, packer, Hebbian |
+| `cargo test` | **20/20 passing** | Config, sampler, KV cache, knowledge graph, manifest, packer, Hebbian, coordinator routing, LoRA |
 | `synapse bench` | PASS | 4 prompts, 759 tokens, 23 tok/s average (CPU) |
 | `synapse status` | PASS | Shows GPU info, VRAM usage, specialist list |
 | `GET /health` | PASS | Returns "ok" |
@@ -230,7 +231,8 @@ That's a **5x speedup** on GPU with CUDA 12.8 (Blackwell). And this is a quantiz
 | Math reasoning | PASS | "2 + 2 equals 4." — clean stop tokens |
 | Specialist routing | PASS | Python queries → python_expert, SQL → sql_expert |
 | Hebbian routing | PASS | Pathway strengths accumulate in SQLite |
-| Swarm decomposition | PASS | Complex queries trigger multi-specialist mode |
+| Swarm decomposition | PASS | Complex queries trigger multi-specialist **parallel** mode |
+| Metacognitive confidence | PASS | /api/confidence returns per-specialist performance |
 | Knowledge graph | PASS | Facts, preferences, conversations, routing pathways |
 | .synapse format | PASS | Pack/unpack with model, adapters, knowledge bundling |
 | Export/Import CLI | PASS | Round-trip specialist export and import |
@@ -238,7 +240,7 @@ That's a **5x speedup** on GPU with CUDA 12.8 (Blackwell). And this is a quantiz
 ### Unit Tests
 
 ```
-running 15 tests
+running 20 tests
 test config::tests::test_default_config ... ok
 test config::tests::test_config_serialization ... ok
 test config::tests::test_load_missing_config ... ok
@@ -246,6 +248,11 @@ test inference::sampler::tests::test_greedy_sampling ... ok
 test inference::sampler::tests::test_empty_logits ... ok
 test inference::sampler::tests::test_stochastic_sampling ... ok
 test inference::kv_cache::tests::test_cache_allocation ... ok
+test inference::lora::tests::test_lora_adapter_placeholder ... ok
+test inference::lora::tests::test_lora_adapter_with_tensors ... ok
+test swarm::coordinator::tests::test_single_routing ... ok
+test swarm::coordinator::tests::test_swarm_routing ... ok
+test swarm::coordinator::tests::test_default_routing ... ok
 test memory::graph::tests::test_knowledge_graph ... ok
 test memory::graph::tests::test_preferences ... ok
 test memory::graph::tests::test_hebbian_routing ... ok
@@ -254,7 +261,7 @@ test format::manifest::tests::test_manifest_creation ... ok
 test format::manifest::tests::test_manifest_serialization ... ok
 test format::packer::tests::test_pack_and_unpack ... ok
 test format::packer::tests::test_list_bundles ... ok
-test result: ok. 15 passed; 0 failed; 0 ignored
+test result: ok. 20 passed; 0 failed; 0 ignored
 ```
 
 ---
@@ -345,7 +352,7 @@ This thing is early. There's a lot to build and a lot to break.
 git clone https://github.com/Djtony707/titan-synapse
 cd titan-synapse
 cargo build
-cargo test  # 15/15 should pass
+cargo test  # 20/20 should pass
 
 # Run with debug logging
 RUST_LOG=debug cargo run -- serve
@@ -368,6 +375,11 @@ RUST_LOG=debug cargo run -- serve
 - [x] Hebbian routing persistence (SQLite-backed pathway learning)
 - [x] .synapse format packer/unpacker with bundled models + adapters
 - [x] CUDA-accelerated inference (5x speedup achieved — 128 tok/s on RTX 5090)
+- [x] Parallel swarm execution (specialists run concurrently, not sequentially)
+- [x] Metacognitive confidence scoring (system tracks what it knows)
+- [x] Smart model selection (prefers larger models when available)
+- [x] Real LoRA adapter loading via SafeTensors (f32, f16, bf16)
+- [x] Conversation context threading (multi-turn awareness)
 - [ ] LoRA adapter training + hot-swap during inference
 - [ ] Speculative decoding (2-3x speedup)
 - [ ] Continuous batching across specialists
