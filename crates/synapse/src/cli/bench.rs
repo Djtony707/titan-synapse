@@ -25,13 +25,11 @@ pub async fn run(config: &SynapseConfig, model: Option<&str>) -> Result<()> {
         let response = engine.generate(prompt, None, 256, 0.7).await?;
         let elapsed = prompt_start.elapsed();
 
-        // Approximate token count (4 chars per token)
-        let tokens = response.len() as u64 / 4;
+        let tokens = response.completion_tokens as u64;
         total_tokens += tokens;
 
-        let tok_s = tokens as f64 / elapsed.as_secs_f64();
-        println!("  {} ~{} tokens in {:.0}ms ({:.0} tok/s)",
-            "•".green(), tokens, elapsed.as_millis(), tok_s);
+        println!("  {} {} tokens in {:.0}ms ({:.1} tok/s)",
+            "•".green(), tokens, elapsed.as_millis(), response.tok_per_sec);
     }
 
     let total_elapsed = start.elapsed();
