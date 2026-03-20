@@ -138,6 +138,23 @@ impl LoadedModel {
         self.decode_tokens(&generated_tokens)
     }
 
+    /// Generate with stats (prompt_tokens, completion_tokens)
+    pub fn generate_with_stats(&mut self, prompt: &str, max_tokens: u32, sampler: &SamplerConfig) -> Result<(String, u32, u32)> {
+        let formatted = self.format_chat_prompt(prompt);
+        let encoding = self.tokenizer.encode(formatted.as_str(), true)
+            .map_err(|e| anyhow::anyhow!("Tokenize error: {e}"))?;
+        let prompt_tokens = encoding.get_ids().len() as u32;
+
+        let text = self.generate(prompt, max_tokens, sampler)?;
+
+        // Count completion tokens
+        let completion_encoding = self.tokenizer.encode(text.as_str(), false)
+            .map_err(|e| anyhow::anyhow!("Tokenize error: {e}"))?;
+        let completion_tokens = completion_encoding.get_ids().len() as u32;
+
+        Ok((text, prompt_tokens, completion_tokens))
+    }
+
     fn is_stop_token(&self, token: u32) -> bool {
         token == self.eos_token_id || self.stop_token_ids.contains(&token)
     }

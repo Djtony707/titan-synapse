@@ -113,13 +113,25 @@ async fn complete_response(
     let model_name = request.model.clone().unwrap_or_else(|| state.config.base_model.clone());
 
     // Route through orchestrator
-    let response_text = state.orchestrator.process(
+    let result = state.orchestrator.process(
         &request.messages,
         &state.engine,
         request.max_tokens,
         request.temperature,
-    ).await
-        .unwrap_or_else(|e| format!("Error: {e}"));
+    ).await;
+
+    let (response_text, usage) = match result {
+        Ok(result) => (result.text, Usage {
+            prompt_tokens: result.prompt_tokens,
+            completion_tokens: result.completion_tokens,
+            total_tokens: result.total_tokens,
+        }),
+        Err(e) => (format!("Error: {e}"), Usage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+        }),
+    };
 
     let response = ChatCompletionResponse {
         id: format!("chatcmpl-{}", uuid::Uuid::new_v4()),
@@ -134,11 +146,7 @@ async fn complete_response(
             },
             finish_reason: "stop".into(),
         }],
-        usage: Usage {
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0,
-        },
+        usage,
     };
 
     Json(response)

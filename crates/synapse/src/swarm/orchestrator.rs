@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crate::config::SynapseConfig;
-use crate::inference::InferenceEngine;
+use crate::inference::{InferenceEngine, GenerationResult};
 use crate::openai::Message;
 use super::coordinator::Coordinator;
 use super::synthesizer::Synthesizer;
@@ -26,7 +26,7 @@ impl Orchestrator {
         engine: &InferenceEngine,
         max_tokens: Option<u32>,
         temperature: Option<f32>,
-    ) -> Result<String> {
+    ) -> Result<GenerationResult> {
         let last_message = messages.last()
             .map(|m| m.content.as_str())
             .unwrap_or("");
@@ -34,7 +34,6 @@ impl Orchestrator {
         let max_tokens = max_tokens.unwrap_or(2048);
         let temperature = temperature.unwrap_or(0.7);
 
-        // Step 1: Coordinator decides routing
         let routing = self.coordinator.route(last_message);
 
         match routing {
@@ -44,7 +43,9 @@ impl Orchestrator {
             }
             RoutingDecision::Swarm { subtasks } => {
                 tracing::info!("Swarm mode: {} subtasks", subtasks.len());
-                let mut results = Vec::new();
+                let mut texts = Vec::new();
+                let mut total_prompt = 0u32;
+                let mut total_completion = 0u32;
 
                 for task in &subtasks {
                     let prompt = format!("Task: {}\n\nContext: {last_message}", task.description);
@@ -54,10 +55,20 @@ impl Orchestrator {
                         max_tokens / subtasks.len() as u32,
                         temperature,
                     ).await?;
-                    results.push((task.specialist.clone(), result));
+                    total_prompt += result.prompt_tokens;
+                    total_completion += result.completion_tokens;
+                    texts.push((task.specialist.clone(), result.text));
                 }
 
-                self.synthesizer.merge(&results)
+                let merged = self.synthesizer.merge(&texts)?;
+                Ok(GenerationResult {
+                    text: merged,
+                    prompt_tokens: total_prompt,
+                    completion_tokens: total_completion,
+                    total_tokens: total_prompt + total_completion,
+                    tok_per_sec: 0.0,
+                    duration_ms: 0,
+                })
             }
         }
     }

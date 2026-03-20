@@ -4,4 +4,4 @@ pub mod sampler;
 pub mod kv_cache;
 pub mod lora;
 
-pub use engine::InferenceEngine;
+pub use engine::{InferenceEngine, GenerationResult};

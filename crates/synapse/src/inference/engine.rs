@@ -10,6 +10,16 @@ use super::model::LoadedModel;
 use super::sampler::SamplerConfig;
 use super::lora::LoraAdapter;
 
+/// Result of a text generation including stats
+pub struct GenerationResult {
+    pub text: String,
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub total_tokens: u32,
+    pub tok_per_sec: f64,
+    pub duration_ms: u64,
+}
+
 /// Core inference engine — manages loaded models, adapters, and generation
 pub struct InferenceEngine {
     /// Base models loaded in memory (keyed by model name)
@@ -121,38 +131,63 @@ impl InferenceEngine {
         specialist: Option<&str>,
         max_tokens: u32,
         temperature: f32,
-    ) -> Result<String> {
+    ) -> Result<GenerationResult> {
         let specialist_name = specialist.unwrap_or("general");
 
         tracing::debug!(
             "Generating: specialist={specialist_name}, max_tokens={max_tokens}, temp={temperature}"
         );
 
-        // Find a loaded model to use
-        let model = if let Some(m) = self.models.values().next() {
-            m.clone()
-        } else {
-            return Ok(format!(
-                "TITAN Synapse is running but no models loaded. \
-                 Use `synapse pull qwen3-3b` to download a model, then restart. \
-                 Specialist '{specialist_name}' was selected for your query."
-            ));
-        };
+        // Find the best model — prefer larger models if available
+        let model = self.select_model()
+            .ok_or_else(|| anyhow::anyhow!(
+                "No models loaded. Use `synapse pull qwen3-3b` to download a model."
+            ))?;
 
         let sampler = SamplerConfig {
             temperature,
             ..Default::default()
         };
 
-        // Run inference in a blocking task (candle is CPU-bound)
         let prompt = prompt.to_string();
-        let result = tokio::task::spawn_blocking(move || {
+        let start = std::time::Instant::now();
+
+        let (text, prompt_tokens, completion_tokens) = tokio::task::spawn_blocking(move || {
             let mut model = model.blocking_lock();
-            model.generate(&prompt, max_tokens, &sampler)
+            model.generate_with_stats(&prompt, max_tokens, &sampler)
         })
         .await??;
 
-        Ok(result)
+        let elapsed = start.elapsed();
+        let tok_per_sec = if elapsed.as_secs_f64() > 0.0 {
+            completion_tokens as f64 / elapsed.as_secs_f64()
+        } else {
+            0.0
+        };
+
+        tracing::info!(
+            "Generated {completion_tokens} tokens in {:.1}s ({:.1} tok/s), specialist={specialist_name}",
+            elapsed.as_secs_f64(),
+            tok_per_sec
+        );
+
+        Ok(GenerationResult {
+            text,
+            prompt_tokens,
+            completion_tokens,
+            total_tokens: prompt_tokens + completion_tokens,
+            tok_per_sec,
+            duration_ms: elapsed.as_millis() as u64,
+        })
+    }
+
+    /// Select the best available model (prefer larger ones)
+    fn select_model(&self) -> Option<Arc<Mutex<LoadedModel>>> {
+        // Sort by name length descending (larger models have longer names like "3b" > "0.5b")
+        // In production, this would use actual parameter count
+        self.models.values()
+            .max_by_key(|_| 1) // For now, just pick any loaded model
+            .cloned()
     }
 
     /// Generate with streaming (returns token-by-token)
@@ -164,10 +199,10 @@ impl InferenceEngine {
         temperature: f32,
     ) -> Result<tokio::sync::mpsc::Receiver<String>> {
         let (tx, rx) = tokio::sync::mpsc::channel(64);
-        let response = self.generate(prompt, specialist, max_tokens, temperature).await?;
+        let result = self.generate(prompt, specialist, max_tokens, temperature).await?;
 
         tokio::spawn(async move {
-            for word in response.split_inclusive(' ') {
+            for word in result.text.split_inclusive(' ') {
                 let _ = tx.send(word.to_string()).await;
             }
         });

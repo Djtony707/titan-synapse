@@ -15,13 +15,15 @@ pub async fn stream_response(
 
     // Generate full response, then stream it token-by-token
     // In production, this will be replaced with true streaming from the inference engine
-    let response_text = state_read.orchestrator.process(
+    let response_text = match state_read.orchestrator.process(
         &request.messages,
         &state_read.engine,
         request.max_tokens,
         request.temperature,
-    ).await
-        .unwrap_or_else(|e| format!("Error: {e}"));
+    ).await {
+        Ok(result) => result.text,
+        Err(e) => format!("Error: {e}"),
+    };
     drop(state_read);
 
     let id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
