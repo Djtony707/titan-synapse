@@ -1,0 +1,69 @@
+[package]
+name = "synapse"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description.workspace = true
+default-run = "synapse"
+
+[[bin]]
+name = "synapse"
+path = "src/main.rs"
+
+[dependencies]
+# HTTP / Async
+axum = { version = "0.8", features = ["macros"] }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Inference — we use candle for tensor ops (pure Rust, no C deps)
+candle-core = "0.8"
+candle-nn = "0.8"
+candle-transformers = "0.8"
+tokenizers = "0.21"
+safetensors = "0.4"
+memmap2 = "0.9"
+
+# GPU monitoring
+# nvml-wrapper = "0.10"  # Linux only — enabled via feature flag
+
+# Storage
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utils
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+thiserror = "2"
+dirs = "6"
+indicatif = "0.17"
+colored = "3"
+futures = "0.3"
+async-stream = "0.3"
+bytes = "1"
+
+[features]
+default = []
+cuda = ["candle-core/cuda"]
+metal = ["candle-core/metal"]
+nvidia = []  # Enable NVML GPU monitoring
+
+[dev-dependencies]
+tempfile = "3"

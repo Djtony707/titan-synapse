@@ -1,0 +1,85 @@
+use anyhow::Result;
+use axum::{
+    Router,
+    routing::{get, post},
+};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tower_http::cors::CorsLayer;
+use tower_http::trace::TraceLayer;
+
+use crate::config::SynapseConfig;
+use crate::inference::InferenceEngine;
+use crate::swarm::Orchestrator;
+use crate::memory::KnowledgeGraph;
+
+pub struct AppState {
+    pub config: SynapseConfig,
+    pub engine: InferenceEngine,
+    pub orchestrator: Orchestrator,
+    pub knowledge: KnowledgeGraph,
+}
+
+pub type SharedState = Arc<RwLock<AppState>>;
+
+pub async fn run(config: SynapseConfig, port: u16) -> Result<()> {
+    tracing::info!("Starting TITAN Synapse on port {port}");
+
+    let knowledge = KnowledgeGraph::new(&config.data_dir.join("knowledge.db"))?;
+    let engine = InferenceEngine::new(&config)?;
+    let orchestrator = Orchestrator::new(&config);
+
+    let state: SharedState = Arc::new(RwLock::new(AppState {
+        config: config.clone(),
+        engine,
+        orchestrator,
+        knowledge,
+    }));
+
+    let app = Router::new()
+        // OpenAI-compatible endpoints
+        .route("/v1/chat/completions", post(crate::openai::chat_completions))
+        .route("/v1/models", get(crate::openai::list_models))
+        // Health
+        .route("/health", get(health))
+        // Status
+        .route("/api/status", get(api_status))
+        .layer(CorsLayer::permissive())
+        .layer(TraceLayer::new_for_http())
+        .with_state(state);
+
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
+    tracing::info!("TITAN Synapse ready at http://0.0.0.0:{port}");
+    tracing::info!("OpenAI-compatible API: http://0.0.0.0:{port}/v1/chat/completions");
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    Ok(())
+}
+
+async fn health() -> &'static str {
+    "ok"
+}
+
+async fn api_status(
+    state: axum::extract::State<SharedState>,
+) -> axum::Json<serde_json::Value> {
+    let state = state.read().await;
+    axum::Json(serde_json::json!({
+        "status": "running",
+        "version": env!("CARGO_PKG_VERSION"),
+        "engine": "synapse",
+        "specialists": state.config.specialists.iter().map(|s| &s.name).collect::<Vec<_>>(),
+        "coordinator": state.config.coordinator_model,
+        "base_model": state.config.base_model,
+    }))
+}
+
+async fn shutdown_signal() {
+    tokio::signal::ctrl_c()
+        .await
+        .expect("failed to install CTRL+C signal handler");
+    tracing::info!("Shutting down TITAN Synapse...");
+}

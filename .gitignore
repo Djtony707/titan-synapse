@@ -1,0 +1,15 @@
+/target
+**/*.rs.bk
+*.swp
+*.swo
+.DS_Store
+*.log
+.env
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+*.synapse
+!tests/fixtures/*.synapse
