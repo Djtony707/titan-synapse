@@ -112,6 +112,12 @@ async fn complete_response(
     let state = state.read().await;
     let model_name = request.model.clone().unwrap_or_else(|| state.config.base_model.clone());
 
+    // Log the user message
+    let session_id = uuid::Uuid::new_v4().to_string();
+    if let Some(last_msg) = request.messages.last() {
+        let _ = state.knowledge.log_message(&session_id, &last_msg.role, &last_msg.content, None);
+    }
+
     // Route through orchestrator with Hebbian routing
     let result = state.orchestrator.process(
         &request.messages,
@@ -122,11 +128,15 @@ async fn complete_response(
     ).await;
 
     let (response_text, usage) = match result {
-        Ok(result) => (result.text, Usage {
-            prompt_tokens: result.prompt_tokens,
-            completion_tokens: result.completion_tokens,
-            total_tokens: result.total_tokens,
-        }),
+        Ok(result) => {
+            // Log the assistant response
+            let _ = state.knowledge.log_message(&session_id, "assistant", &result.text, None);
+            (result.text, Usage {
+                prompt_tokens: result.prompt_tokens,
+                completion_tokens: result.completion_tokens,
+                total_tokens: result.total_tokens,
+            })
+        }
         Err(e) => (format!("Error: {e}"), Usage {
             prompt_tokens: 0,
             completion_tokens: 0,

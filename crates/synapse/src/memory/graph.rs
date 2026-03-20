@@ -226,6 +226,26 @@ impl KnowledgeGraph {
         )?;
         Ok(count)
     }
+
+    /// Get total conversation messages count
+    pub fn conversation_count(&self) -> Result<u32> {
+        let count: u32 = self.conn.lock().unwrap().query_row(
+            "SELECT COUNT(*) FROM conversations",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// Get total preference pairs count
+    pub fn total_preference_count(&self) -> Result<u32> {
+        let count: u32 = self.conn.lock().unwrap().query_row(
+            "SELECT COUNT(*) FROM preferences",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
 }
 
 #[cfg(test)]

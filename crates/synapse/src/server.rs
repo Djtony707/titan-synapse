@@ -83,6 +83,8 @@ async fn api_status(
         "base_model": state.config.base_model,
         "knowledge": {
             "facts": fact_count,
+            "conversations": state.knowledge.conversation_count().unwrap_or(0),
+            "preference_pairs": state.knowledge.total_preference_count().unwrap_or(0),
         },
         "hebbian_routing": {
             "top_pathways": top_pathways.iter().map(|(p, s, avg)| {
