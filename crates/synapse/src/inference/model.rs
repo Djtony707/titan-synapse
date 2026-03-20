@@ -56,57 +56,73 @@ impl LoadedModel {
         })
     }
 
+    /// Format prompt with chat template
+    fn format_chat_prompt(&self, prompt: &str) -> String {
+        format!(
+            "<|im_start|>system\nYou are a helpful AI assistant powered by TITAN Synapse.<|im_end|>\n\
+             <|im_start|>user\n{prompt}<|im_end|>\n\
+             <|im_start|>assistant\n"
+        )
+    }
+
     /// Generate text from a prompt
     pub fn generate(&mut self, prompt: &str, max_tokens: u32, sampler: &SamplerConfig) -> Result<String> {
-        // Tokenize
-        let encoding = self.tokenizer.encode(prompt, true)
-            .map_err(|e| anyhow::anyhow!("Tokenize error: {e}"))?;
-        let mut tokens: Vec<u32> = encoding.get_ids().to_vec();
-        let prompt_len = tokens.len();
+        let formatted = self.format_chat_prompt(prompt);
 
-        tracing::debug!("Prompt: {} tokens, generating up to {max_tokens}", prompt_len);
+        // Tokenize
+        let encoding = self.tokenizer.encode(formatted.as_str(), true)
+            .map_err(|e| anyhow::anyhow!("Tokenize error: {e}"))?;
+        let tokens: Vec<u32> = encoding.get_ids().to_vec();
+
+        if tokens.is_empty() {
+            return Ok("(empty prompt)".into());
+        }
+
+        tracing::info!("Prompt: {} tokens, generating up to {max_tokens}", tokens.len());
 
         let mut generated_tokens: Vec<u32> = Vec::new();
-        let mut pos = 0;
 
-        // Process prompt (prefill)
+        // Process prompt (prefill) — feed all tokens at once
         let input = Tensor::new(tokens.as_slice(), &self.device)?
             .unsqueeze(0)?; // (1, seq_len)
-        let logits = self.model.forward(&input, pos)?;
-        pos += tokens.len();
+        // Model forward returns (batch_size, vocab_size) — already extracts last position
+        let logits = self.model.forward(&input, 0)?;
+        let mut pos = tokens.len();
 
-        // Get logits for last position
-        let logits = logits.squeeze(0)?; // (seq_len, vocab)
-        let last_logits = logits.i(logits.dim(0)? - 1)?; // (vocab,)
-        let logits_vec: Vec<f32> = last_logits.to_vec1()?;
+        // logits shape: (1, vocab_size) → squeeze to (vocab_size,)
+        let logits_flat = logits.squeeze(0)?;
+        let logits_vec: Vec<f32> = logits_flat.to_vec1()?;
 
         // Sample first token
-        let next_token = sampler.sample(&logits_vec);
+        let mut next_token = sampler.sample(&logits_vec);
         generated_tokens.push(next_token);
-
-        if next_token == self.eos_token_id {
-            return self.decode_tokens(&generated_tokens);
-        }
 
         // Autoregressive generation
         for _ in 1..max_tokens {
-            let input = Tensor::new(&[next_token], &self.device)?
-                .unsqueeze(0)?;
-            let logits = self.model.forward(&input, pos)?;
-            pos += 1;
-
-            let logits = logits.squeeze(0)?;
-            let last_logits = logits.i(logits.dim(0)? - 1)?;
-            let logits_vec: Vec<f32> = last_logits.to_vec1()?;
-
-            let next_token = sampler.sample(&logits_vec);
-
             if next_token == self.eos_token_id {
                 break;
             }
 
-            generated_tokens.push(next_token);
+            let input = Tensor::new(&[next_token], &self.device)?
+                .unsqueeze(0)?; // (1, 1)
+            let logits = self.model.forward(&input, pos)?;
+            pos += 1;
+
+            // (1, vocab_size) → (vocab_size,)
+            let logits_flat = logits.squeeze(0)?;
+            let logits_vec: Vec<f32> = logits_flat.to_vec1()?;
+
+            next_token = sampler.sample(&logits_vec);
+            if next_token != self.eos_token_id {
+                generated_tokens.push(next_token);
+            }
         }
+
+        tracing::info!(
+            "Generated {} tokens from {} prompt tokens",
+            generated_tokens.len(),
+            tokens.len()
+        );
 
         self.decode_tokens(&generated_tokens)
     }

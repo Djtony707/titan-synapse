@@ -113,7 +113,12 @@ async fn complete_response(
     let model_name = request.model.clone().unwrap_or_else(|| state.config.base_model.clone());
 
     // Route through orchestrator
-    let response_text = state.orchestrator.process(&request.messages, &state.engine).await
+    let response_text = state.orchestrator.process(
+        &request.messages,
+        &state.engine,
+        request.max_tokens,
+        request.temperature,
+    ).await
         .unwrap_or_else(|e| format!("Error: {e}"));
 
     let response = ChatCompletionResponse {

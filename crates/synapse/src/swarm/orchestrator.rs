@@ -20,23 +20,29 @@ impl Orchestrator {
     }
 
     /// Process a chat request — route to specialist(s) and return response
-    pub async fn process(&self, messages: &[Message], engine: &InferenceEngine) -> Result<String> {
+    pub async fn process(
+        &self,
+        messages: &[Message],
+        engine: &InferenceEngine,
+        max_tokens: Option<u32>,
+        temperature: Option<f32>,
+    ) -> Result<String> {
         let last_message = messages.last()
             .map(|m| m.content.as_str())
             .unwrap_or("");
+
+        let max_tokens = max_tokens.unwrap_or(2048);
+        let temperature = temperature.unwrap_or(0.7);
 
         // Step 1: Coordinator decides routing
         let routing = self.coordinator.route(last_message);
 
         match routing {
             RoutingDecision::Single { specialist } => {
-                // Simple query → single specialist
                 tracing::info!("Routing to specialist: {specialist}");
-                let prompt = self.build_prompt(messages, &specialist);
-                engine.generate(&prompt, Some(&specialist), 2048, 0.7).await
+                engine.generate(last_message, Some(&specialist), max_tokens, temperature).await
             }
             RoutingDecision::Swarm { subtasks } => {
-                // Complex query → multi-specialist swarm
                 tracing::info!("Swarm mode: {} subtasks", subtasks.len());
                 let mut results = Vec::new();
 
@@ -45,23 +51,15 @@ impl Orchestrator {
                     let result = engine.generate(
                         &prompt,
                         Some(&task.specialist),
-                        1024,
-                        0.7,
+                        max_tokens / subtasks.len() as u32,
+                        temperature,
                     ).await?;
                     results.push((task.specialist.clone(), result));
                 }
 
-                // Synthesize results
                 self.synthesizer.merge(&results)
             }
         }
-    }
-
-    fn build_prompt(&self, messages: &[Message], _specialist: &str) -> String {
-        messages.iter()
-            .map(|m| format!("{}: {}", m.role, m.content))
-            .collect::<Vec<_>>()
-            .join("\n")
     }
 }
 

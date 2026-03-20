@@ -15,7 +15,12 @@ pub async fn stream_response(
 
     // Generate full response, then stream it token-by-token
     // In production, this will be replaced with true streaming from the inference engine
-    let response_text = state_read.orchestrator.process(&request.messages, &state_read.engine).await
+    let response_text = state_read.orchestrator.process(
+        &request.messages,
+        &state_read.engine,
+        request.max_tokens,
+        request.temperature,
+    ).await
         .unwrap_or_else(|e| format!("Error: {e}"));
     drop(state_read);
 
