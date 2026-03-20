@@ -411,6 +411,17 @@ def generate_routing_data(count: int = 5000) -> list:
 # Training Core
 # ============================================================
 
+def _get_attn_impl() -> str:
+    """Pick the best available attention implementation."""
+    try:
+        import flash_attn  # noqa: F401
+        logger.info("Using FlashAttention2")
+        return "flash_attention_2"
+    except ImportError:
+        logger.info("FlashAttention2 not available, using SDPA (still fast)")
+        return "sdpa"
+
+
 def load_and_prepare_data(specialist: str, max_total: int = 50000) -> list:
     """Download and format training data for a specialist."""
     config = SPECIALIST_DATASETS[specialist]
@@ -532,7 +543,7 @@ def train_specialist(
         device_map="auto",
         cache_dir=str(CACHE_DIR),
         trust_remote_code=True,
-        attn_implementation="flash_attention_2" if torch.cuda.get_device_capability()[0] >= 8 else "eager",
+        attn_implementation=_get_attn_impl(),
     )
 
     model = prepare_model_for_kbit_training(model)
@@ -580,7 +591,7 @@ def train_specialist(
         save_strategy="epoch",
         save_total_limit=2,
         bf16=True,
-        max_seq_length=config["max_seq_length"],
+        max_length=config["max_seq_length"],
         dataset_text_field="text",
         packing=True,  # Pack short examples for efficiency
         gradient_checkpointing=True,  # Save VRAM
