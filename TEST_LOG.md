@@ -1,17 +1,17 @@
 # TITAN Synapse — Test Log
 
-**Date**: March 20, 2026
+**Date**: March 20, 2026 (updated throughout DAY 1-2)
 **Platform**: RTX 5090 (32GB VRAM), i9-14900KF, 64GB DDR5-6000, Ubuntu 24.04
-**Model**: Qwen2.5-0.5B-Instruct (Q4_K_M quantized, 491MB)
+**Models**: Qwen2.5-3B-Instruct (Q4_K_M, 1.9GB) + Qwen2.5-0.5B-Instruct (Q4_K_M, 491MB)
 **Rust**: 1.94.0 (release build)
 **Binary size**: ~6.3MB
 
 ---
 
-## Unit Tests (11/11 PASSING)
+## Unit Tests (15/15 PASSING)
 
 ```
-cargo test — 11/11 PASSING in 0.00s
+cargo test — 15/15 PASSING in 0.01s
 ```
 
 | # | Test | Module | Result |
@@ -25,8 +25,36 @@ cargo test — 11/11 PASSING in 0.00s
 | 7 | test_cache_allocation | inference::kv_cache | PASS |
 | 8 | test_knowledge_graph | memory::graph | PASS |
 | 9 | test_preferences | memory::graph | PASS |
-| 10 | test_manifest_creation | format::manifest | PASS |
-| 11 | test_manifest_serialization | format::manifest | PASS |
+| 10 | test_hebbian_routing | memory::graph | PASS |
+| 11 | test_specialist_stats | memory::graph | PASS |
+| 12 | test_manifest_creation | format::manifest | PASS |
+| 13 | test_manifest_serialization | format::manifest | PASS |
+| 14 | test_pack_and_unpack | format::packer | PASS |
+| 15 | test_list_bundles | format::packer | PASS |
+
+---
+
+## Benchmark Results (Qwen2.5-3B, Q4_K_M, CPU only)
+
+```
+synapse bench — 4 prompts, 759 tokens total
+```
+
+| Prompt | Tokens | Time | Tok/s |
+|--------|--------|------|-------|
+| Python decorator explanation | 109 | 5,001ms | 21.8 |
+| SQL top-10 query | 139 | 6,467ms | 21.5 |
+| TCP vs UDP explanation | 256 | 10,893ms | 23.5 |
+| Go garbage collection | 255 | 10,875ms | 23.4 |
+| **Average** | **190** | **8,309ms** | **23 tok/s** |
+
+**Consistency test** (3 runs, same prompt, 64 tokens):
+- Run 1: 64 tokens in 3,502ms (18.3 tok/s)
+- Run 2: 64 tokens in 3,482ms (18.4 tok/s)
+- Run 3: 64 tokens in 3,513ms (18.2 tok/s)
+- **Variance**: <1% — extremely consistent
+
+**Note**: CPU-only. With CUDA enabled on the RTX 5090, expect 200-400 tok/s.
 
 ---
 
@@ -39,64 +67,60 @@ All tests run against the live server at `http://192.168.1.11:6900`
 - **Result**: PASS
 - **Response**: `ok`
 - **HTTP Code**: 200
-- **Latency**: 0.37ms
 
 ### Test 2: List Models
 - **Endpoint**: `GET /v1/models`
 - **Result**: PASS
 - **Response**: 4 models listed (synapse, synapse/general, synapse/python_expert, synapse/sql_expert)
-- **Format**: OpenAI-compatible model list
 
-### Test 3: API Status
+### Test 3: API Status (Enhanced)
 - **Endpoint**: `GET /api/status`
 - **Result**: PASS
-- **Response**: `{"status":"running","version":"0.1.0","engine":"synapse","specialists":["general","python_expert","sql_expert"],"coordinator":"qwen3-0.6b","base_model":"qwen3-3b"}`
+- **Response**: Includes `models_loaded: ["qwen2.5-3b-instruct-q4_k_m", "qwen2.5-0.5b-instruct-q4_k_m"]`, Hebbian pathway data, knowledge stats
 
 ### Test 4: Simple Math — "What is 2+2?"
 - **Endpoint**: `POST /v1/chat/completions`
 - **Result**: PASS
-- **Response**: `"4"` (correct)
-- **Time**: 2.71s
-- **Specialist routed**: general
+- **Response**: `"2 + 2 equals 4."` (correct, clean stop)
+- **Usage**: `{prompt_tokens: 34, completion_tokens: 8, total_tokens: 42}`
 
-### Test 5: Python Code Generation — "Write a function to reverse a string"
+### Test 5: Python Code Generation
 - **Endpoint**: `POST /v1/chat/completions`
 - **Result**: PASS
-- **Response**: `def reverse_string(s): return s[::-1]` (correct, idiomatic Python)
-- **Time**: 2.75s
-- **Max tokens**: 64
+- **Response**: Correct decorator explanation with working code example
 
 ### Test 6: SSE Streaming
 - **Endpoint**: `POST /v1/chat/completions` (stream=true)
 - **Result**: PASS
-- **Response**: Word-by-word SSE chunks, proper `data:` prefix, role delta followed by content deltas
-- **Format**: OpenAI-compatible chunked streaming
+- **Response**: Role delta → content deltas → [DONE], proper SSE format
 
-### Test 7: SQL Query Generation — "Find top 5 users by post count"
+### Test 7: SQL Query Generation
 - **Endpoint**: `POST /v1/chat/completions`
 - **Result**: PASS
-- **Response**: Correct SQL with JOIN, GROUP BY, COUNT, proper table aliases
-- **Time**: 10.34s (128 tokens)
-- **Specialist routed**: sql_expert (keyword match on "sql", "query")
+- **Response**: Correct SQL with JOIN, GROUP BY, COUNT
+- **Specialist routed**: sql_expert
 
-### Test 8: Greedy Decoding (temperature=0) — "Capital of France?"
-- **Endpoint**: `POST /v1/chat/completions` (temperature=0)
-- **Result**: PASS
-- **Response**: `"Paris"` (correct)
-- **Time**: 2.12s
-- **Deterministic**: Yes (greedy argmax)
-
-### Test 9: Long Generation — "Explain neural networks in 3 sentences"
+### Test 8: Token Counting Accuracy
 - **Endpoint**: `POST /v1/chat/completions`
 - **Result**: PASS
-- **Response**: Coherent 3-sentence explanation of neural networks, accurate content
-- **Time**: 6.30s (~128 tokens)
-- **Quality**: Accurate, well-structured, stops naturally
+- **Response**: `usage` field with accurate prompt_tokens, completion_tokens, total_tokens
+- **Verified**: total_tokens = prompt_tokens + completion_tokens
 
-### Test 10: CLI Status Command
-- **Command**: `synapse status`
+### Test 9: Hebbian Routing Accumulation
+- **Method**: Made 3 Python queries, then checked /api/status
 - **Result**: PASS
-- **Output**: Shows GPU (RTX 5090), VRAM (3964/32607 MB used), temp (36°C), 3 specialists
+- **Hebbian state**: `python_expert: strength=4, avg_score=4.0`, `sql_expert: strength=3`, `general: strength=2`
+- **Verified**: Pathways strengthen with repeated use
+
+### Test 10: Multi-Model Loading
+- **Result**: PASS
+- **Models loaded**: qwen2.5-3b-instruct-q4_k_m (1.1s), qwen2.5-0.5b-instruct-q4_k_m (0.7s)
+- **Simultaneous**: Both models in memory, auto-selected by engine
+
+### Test 11: Counting Task
+- **Prompt**: "Count from 1 to 5"
+- **Result**: PASS
+- **Response**: "1\n2\n3\n4\n5" (correct, clean)
 
 ---
 
@@ -104,16 +128,14 @@ All tests run against the live server at `http://192.168.1.11:6900`
 
 | Metric | Value |
 |--------|-------|
-| Model load time | 0.5 seconds |
-| Health check latency | 0.37ms |
-| Short response (8 tokens) | ~2.1s |
-| Medium response (64 tokens) | ~2.7s |
-| Long response (128 tokens) | ~6.3-10.3s |
-| Approx. throughput (CPU) | ~15-20 tok/s |
-| VRAM used by model | ~1.0 GB (0.5B model, quantized) |
-| Server memory (RSS) | ~4.0 GB |
-
-**Note**: Currently running on CPU. CUDA acceleration will increase throughput significantly (estimated 5-10x).
+| Model load time (3B) | 1.1 seconds |
+| Model load time (0.5B) | 0.7 seconds |
+| Health check latency | <1ms |
+| Short response (8 tokens) | ~370ms |
+| Medium response (64 tokens) | ~3.5s |
+| Long response (256 tokens) | ~10.9s |
+| **Throughput (CPU, 3B)** | **21-24 tok/s** |
+| VRAM used by models | ~2.4 GB (both models loaded) |
 
 ---
 
@@ -121,42 +143,42 @@ All tests run against the live server at `http://192.168.1.11:6900`
 
 ### Math
 ```
-Q: What is 2+2? Answer with just the number.
-A: 4
+Q: What is 2+2?
+A: 2 + 2 equals 4.
 ```
 
 ### Code
 ```
-Q: Write a Python function to reverse a string. Just the code, no explanation.
-A: def reverse_string(s):
-       return s[::-1]
+Q: What is a Python decorator? Explain briefly.
+A: A Python decorator is a special function that adds functionality
+   to another function without modifying its code. [includes working
+   code example with @my_decorator syntax]
 ```
 
 ### SQL
 ```
-Q: Write a SQL query to find the top 5 users by post count
-A: SELECT u.user_id, u.user_name, COUNT(p.post_id) AS post_count
-   FROM users u
-   JOIN posts p ON u.user_id = p.user_id
+Q: Write a SQL query to find the top 5 users by order count.
+A: SELECT u.user_id, u.user_name, COUNT(o.order_id) AS order_count
+   FROM users u JOIN orders o ON u.user_id = o.user_id
    GROUP BY u.user_id, u.user_name
+   ORDER BY order_count DESC LIMIT 5;
 ```
 
-### Knowledge
-```
-Q: What is the capital of France? One word answer.
-A: Paris
-```
+---
 
-### Explanation
-```
-Q: Explain what a neural network is in 3 sentences.
-A: A neural network is a type of machine learning model inspired by the structure
-   and function of the human brain. It consists of layers of interconnected nodes,
-   or neurons, that process information and learn to recognize patterns in data.
-   Through training, these networks can improve their performance, making them
-   useful for tasks such as image recognition, natural language processing, and
-   predictive analytics.
-```
+## Issues Found & Fixed
+
+1. **Tensor rank error**: candle's quantized_qwen2 returns `(batch, vocab)` not `(batch, seq, vocab)`. Fixed with `squeeze(0)`.
+
+2. **Chat template**: Model requires `<|im_start|>/<|im_end|>` format. Added `format_chat_prompt()`.
+
+3. **Stop token bleed**: Model generated past answer. Fixed by collecting all stop token IDs.
+
+4. **`gen` reserved keyword**: Rust 2024 reserves `gen`. Renamed variable.
+
+5. **bench.rs after GenerationResult**: `response.len()` broke when return type changed from String to GenerationResult. Fixed to use `response.completion_tokens`.
+
+6. **KnowledgeGraph not Send+Sync**: `rusqlite::Connection` uses RefCell. Fixed with `std::sync::Mutex<Connection>`.
 
 ---
 
@@ -170,13 +192,3 @@ Dependencies: 385 crates
 Build time (release): ~36s (first build), ~3s (incremental)
 Target: x86_64-unknown-linux-gnu
 ```
-
----
-
-## Issues Found & Fixed
-
-1. **Tensor rank error**: Initial model forward pass assumed output shape `(batch, seq_len, vocab)` but candle's quantized_qwen2 returns `(batch, vocab)` since it extracts the last position internally. Fixed by removing extra indexing.
-
-2. **Chat template**: Model requires `<|im_start|>/<|im_end|>` format for instruction following. Added `format_chat_prompt()` to wrap user input in proper template.
-
-3. **SSH deployment**: Direct `nohup` via SSH sometimes fails due to connection closing. Resolved by using background process with `&` and checking with `curl`.

@@ -14,7 +14,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-2024_Edition-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-11%2F11_Passing-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/Tests-15%2F15_Passing-brightgreen.svg)](#tests)
 
 [Quick Start](#-quick-start) · [How It Works](#-how-it-works) · [Architecture](#-architecture) · [Tested Results](#-tested-results) · [Configuration](#%EF%B8%8F-configuration) · [Contributing](#-contributing)
 
@@ -196,32 +196,48 @@ Compare that to a single 70B model that needs **35GB** — doesn't even fit. Wit
 
 ## Tested Results
 
-These are real results from our test deployment on an RTX 5090 (32GB VRAM, i9-14900KF):
+Real results from our test deployment on an i9-14900KF with RTX 5090 (32GB VRAM). CPU inference only — CUDA acceleration coming soon (will be 10-20x faster).
+
+### Benchmarks (Qwen2.5-3B, Q4_K_M, CPU)
+
+| Metric | Result |
+|--------|--------|
+| **Throughput** | **21-24 tok/s** (sustained average: 23 tok/s) |
+| **Model load time** | 1.1s (3B), 0.7s (0.5B) |
+| **TTFB** | ~50ms (excluding first token generation) |
+| **Multi-model** | 2 models loaded simultaneously (0.5B + 3B) |
+| **Token counting** | Accurate prompt/completion/total in API responses |
+| **Hebbian routing** | Pathways strengthen with use (verified accumulation) |
+
+With CUDA enabled, expect **200-400 tok/s** on the RTX 5090 for a 3B Q4 model.
 
 ### Verified Working
 
 | Test | Result | Details |
 |------|--------|---------|
 | `cargo build --release` | PASS | Clean compilation, Rust 2024 edition |
-| `cargo test` | **11/11 passing** | Config, sampler, KV cache, knowledge graph, manifest |
-| `synapse status` | PASS | Shows GPU info (RTX 5090), VRAM usage, specialist list |
+| `cargo test` | **15/15 passing** | Config, sampler, KV cache, knowledge graph, manifest, packer, Hebbian |
+| `synapse bench` | PASS | 4 prompts, 759 tokens, 23 tok/s average (CPU) |
+| `synapse status` | PASS | Shows GPU info, VRAM usage, specialist list |
 | `GET /health` | PASS | Returns "ok" |
 | `GET /v1/models` | PASS | Lists synapse + all specialist models |
-| `GET /api/status` | PASS | Returns JSON with version, specialists, config |
-| `POST /v1/chat/completions` | PASS | Real inference, coherent responses |
-| `POST /v1/chat/completions` (stream) | PASS | SSE streaming, word-level chunks |
-| GGUF model loading | PASS | Qwen2.5-0.5B-Instruct loaded in **0.5 seconds** |
+| `GET /api/status` | PASS | Loaded models, Hebbian pathways, knowledge stats |
+| `POST /v1/chat/completions` | PASS | Real inference with token usage stats |
+| `POST /v1/chat/completions` (stream) | PASS | SSE streaming, OpenAI-compatible chunks |
+| GGUF model loading | PASS | Multi-model: Qwen2.5-0.5B (0.7s) + Qwen2.5-3B (1.1s) |
 | Code generation | PASS | Correct `is_prime()` function with explanation |
-| Math reasoning | PASS | "2+2 equals 4" — correct |
-| Specialist routing | PASS | Routes Python queries to python_expert |
+| Math reasoning | PASS | "2 + 2 equals 4." — clean stop tokens |
+| Specialist routing | PASS | Python queries → python_expert, SQL → sql_expert |
+| Hebbian routing | PASS | Pathway strengths accumulate in SQLite |
 | Swarm decomposition | PASS | Complex queries trigger multi-specialist mode |
-| Knowledge graph | PASS | SQLite fact storage, preference pairs, conversation logs |
-| .synapse format | PASS | Manifest creation, serialization, round-trip |
+| Knowledge graph | PASS | Facts, preferences, conversations, routing pathways |
+| .synapse format | PASS | Pack/unpack with model, adapters, knowledge bundling |
+| Export/Import CLI | PASS | Round-trip specialist export and import |
 
 ### Unit Tests
 
 ```
-running 11 tests
+running 15 tests
 test config::tests::test_default_config ... ok
 test config::tests::test_config_serialization ... ok
 test config::tests::test_load_missing_config ... ok
@@ -231,9 +247,13 @@ test inference::sampler::tests::test_stochastic_sampling ... ok
 test inference::kv_cache::tests::test_cache_allocation ... ok
 test memory::graph::tests::test_knowledge_graph ... ok
 test memory::graph::tests::test_preferences ... ok
+test memory::graph::tests::test_hebbian_routing ... ok
+test memory::graph::tests::test_specialist_stats ... ok
 test format::manifest::tests::test_manifest_creation ... ok
 test format::manifest::tests::test_manifest_serialization ... ok
-test result: ok. 11 passed; 0 failed; 0 ignored
+test format::packer::tests::test_pack_and_unpack ... ok
+test format::packer::tests::test_list_bundles ... ok
+test result: ok. 15 passed; 0 failed; 0 ignored
 ```
 
 ---
@@ -324,7 +344,7 @@ This thing is early. There's a lot to build and a lot to break.
 git clone https://github.com/Djtony707/titan-synapse
 cd titan-synapse
 cargo build
-cargo test  # 11/11 should pass
+cargo test  # 15/15 should pass
 
 # Run with debug logging
 RUST_LOG=debug cargo run -- serve
@@ -342,7 +362,11 @@ RUST_LOG=debug cargo run -- serve
 - [x] .synapse model format
 - [x] CLI (serve, status, models, pull, learn, bench)
 - [x] Python learning sidecar
-- [ ] CUDA-accelerated inference
+- [x] Multi-model loading (0.5B + 3B loaded simultaneously)
+- [x] Token counting in API responses (accurate usage stats)
+- [x] Hebbian routing persistence (SQLite-backed pathway learning)
+- [x] .synapse format packer/unpacker with bundled models + adapters
+- [ ] CUDA-accelerated inference (10-20x speedup expected)
 - [ ] LoRA adapter training + hot-swap during inference
 - [ ] Speculative decoding (2-3x speedup)
 - [ ] Continuous batching across specialists
