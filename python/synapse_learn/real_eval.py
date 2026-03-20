@@ -29,6 +29,11 @@ from pathlib import Path
 from typing import Optional
 from datetime import datetime
 
+# Fix import path — avoid our local datasets.py shadowing HuggingFace datasets
+_script_dir = str(Path(__file__).parent)
+if _script_dir in sys.path:
+    sys.path.remove(_script_dir)
+
 import requests
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
