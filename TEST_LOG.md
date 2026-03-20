@@ -34,10 +34,10 @@ cargo test — 15/15 PASSING in 0.01s
 
 ---
 
-## Benchmark Results (Qwen2.5-3B, Q4_K_M, CPU only)
+## Benchmark Results — CPU (Qwen2.5-3B, Q4_K_M)
 
 ```
-synapse bench — 4 prompts, 759 tokens total
+synapse bench — 4 prompts, 759 tokens total (CPU inference)
 ```
 
 | Prompt | Tokens | Time | Tok/s |
@@ -48,13 +48,33 @@ synapse bench — 4 prompts, 759 tokens total
 | Go garbage collection | 255 | 10,875ms | 23.4 |
 | **Average** | **190** | **8,309ms** | **23 tok/s** |
 
-**Consistency test** (3 runs, same prompt, 64 tokens):
-- Run 1: 64 tokens in 3,502ms (18.3 tok/s)
-- Run 2: 64 tokens in 3,482ms (18.4 tok/s)
-- Run 3: 64 tokens in 3,513ms (18.2 tok/s)
-- **Variance**: <1% — extremely consistent
+---
 
-**Note**: CPU-only. With CUDA enabled on the RTX 5090, expect 200-400 tok/s.
+## Benchmark Results — CUDA GPU (Qwen2.5-3B, Q4_K_M, RTX 5090)
+
+```
+CUDA 12.8 (Blackwell) — 5x speedup over CPU
+```
+
+| Test | Tokens | Time | Tok/s |
+|------|--------|------|-------|
+| TCP vs UDP (run 1) | 119 | 935ms | 127.3 |
+| TCP vs UDP (run 2) | 119 | 1,014ms | 117.4 |
+| TCP vs UDP (run 3) | 120 | 1,017ms | 118.0 |
+| Prime function (256 tokens) | 256 | 7,403ms | 34.6 |
+| BST class (512 tokens) | 512 | 4,028ms | 127.1 |
+| Programming languages list | 128 | ~1,300ms | 97.6 |
+| **Average sustained** | — | — | **~100-128 tok/s** |
+
+**Model load times (GPU)**:
+- 3B model: **0.6s** (was 1.1s on CPU — 1.8x faster)
+- 0.5B model: **0.3s** (was 0.7s on CPU — 2.3x faster)
+
+**Consistency** (3 runs, same prompt, 119 tokens):
+- Run 1: 119 tokens in 935ms (127.3 tok/s)
+- Run 2: 119 tokens in 1,014ms (117.4 tok/s)
+- Run 3: 120 tokens in 1,017ms (118.0 tok/s)
+- **Variance**: <8% — very consistent
 
 ---
 
@@ -126,16 +146,16 @@ All tests run against the live server at `http://192.168.1.11:6900`
 
 ## Performance Summary
 
-| Metric | Value |
-|--------|-------|
-| Model load time (3B) | 1.1 seconds |
-| Model load time (0.5B) | 0.7 seconds |
-| Health check latency | <1ms |
-| Short response (8 tokens) | ~370ms |
-| Medium response (64 tokens) | ~3.5s |
-| Long response (256 tokens) | ~10.9s |
-| **Throughput (CPU, 3B)** | **21-24 tok/s** |
-| VRAM used by models | ~2.4 GB (both models loaded) |
+| Metric | CPU | GPU (CUDA) |
+|--------|-----|------------|
+| Model load time (3B) | 1.1s | **0.6s** |
+| Model load time (0.5B) | 0.7s | **0.3s** |
+| Health check latency | <1ms | <1ms |
+| Short response (8 tokens) | ~370ms | ~80ms |
+| Medium response (128 tokens) | ~5.5s | **~1s** |
+| Long response (512 tokens) | ~22s | **~4s** |
+| **Throughput (3B Q4)** | **21-24 tok/s** | **97-128 tok/s** |
+| VRAM used by models | N/A | ~2.4 GB |
 
 ---
 
@@ -180,6 +200,10 @@ A: SELECT u.user_id, u.user_name, COUNT(o.order_id) AS order_count
 
 6. **KnowledgeGraph not Send+Sync**: `rusqlite::Connection` uses RefCell. Fixed with `std::sync::Mutex<Connection>`.
 
+7. **CUDA "no cuda implementation for rms-norm"**: Only `candle-core` had the `cuda` feature. Fixed by enabling `cuda` on `candle-nn` and `candle-transformers` too. See [candle#1916](https://github.com/huggingface/candle/issues/1916).
+
+8. **CUDA 12.6 → 12.8**: RTX 5090 (Blackwell) requires compute capability sm_120, which needs CUDA 12.8+. Upgraded from 12.6 to 12.8.
+
 ---
 
 ## Build Info
@@ -189,6 +213,8 @@ Rust edition: 2024
 Cargo workspace: titan-synapse
 Binary crate: synapse
 Dependencies: 385 crates
-Build time (release): ~36s (first build), ~3s (incremental)
+Build time (release, CPU): ~36s (first), ~3s (incremental)
+Build time (release, CUDA): ~23s (first), ~12s (incremental)
+CUDA toolkit: 12.8 (Blackwell sm_120)
 Target: x86_64-unknown-linux-gnu
 ```

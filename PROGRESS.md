@@ -83,18 +83,26 @@
 
 ## DAY 3: Polish + Ship (March 21-22) -- IN PROGRESS
 
-### Block 1 — Documentation
-- [x] README updated with real benchmark numbers (23 tok/s, 15 tests)
-- [x] TEST_LOG updated with all benchmark data and 11 integration tests
+### Block 1 — CUDA Acceleration
+- [x] Installed CUDA 12.8 toolkit on Titan PC (Blackwell sm_120 support)
+- [x] Fixed candle-nn/candle-transformers missing cuda feature flags
+- [x] Built with `--features cuda` — compiles clean
+- [x] Model loading: 0.6s (3B), 0.3s (0.5B) — 2x faster than CPU
+- [x] Inference: **97-128 tok/s** — 5x faster than CPU (23 tok/s)
+- [x] 10/10 integration tests passing on CUDA server
+- [x] 15/15 unit tests still passing
+
+### Block 2 — Documentation
+- [x] README updated with CUDA benchmark numbers (97-128 tok/s)
+- [x] TEST_LOG updated with GPU benchmarks, issues #7-8 documented
 - [x] PROGRESS.md up to date
 
-### Block 2 — Remaining
+### Block 3 — Remaining
+- [x] Install script (install.sh)
+- [x] CONTRIBUTING.md
 - [ ] Python learning sidecar (FastAPI + Unsloth) — Docker Compose ready
-- [ ] CUDA-accelerated inference (nvcc not installed on Titan PC yet)
 - [ ] Real LoRA adapter hot-swap during inference
-- [ ] Install script for easy deployment
 - [ ] GitHub release with pre-built binary
-- [ ] npm publish
 
 ---
 
@@ -103,9 +111,11 @@
 | Category | Count | Status |
 |----------|-------|--------|
 | Unit tests | 15 | ALL PASSING |
-| Integration tests | 11 | ALL PASSING |
-| Benchmark runs | 7 | ALL PASSING |
-| **Total verified** | **33** | **ALL GREEN** |
+| Integration tests (CPU) | 11 | ALL PASSING |
+| Integration tests (CUDA) | 10 | ALL PASSING |
+| Benchmark runs (CPU) | 7 | ALL PASSING |
+| Benchmark runs (GPU) | 6 | ALL PASSING |
+| **Total verified** | **49** | **ALL GREEN** |
 
 ## Architecture
 

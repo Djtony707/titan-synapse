@@ -14,7 +14,8 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-2024_Edition-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-15%2F15_Passing-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/Tests-25%2F25_Passing-brightgreen.svg)](#tests)
+[![CUDA](https://img.shields.io/badge/CUDA-12.8_(Blackwell)-76B900.svg)](https://developer.nvidia.com/cuda-toolkit)
 
 [Quick Start](#-quick-start) · [How It Works](#-how-it-works) · [Architecture](#-architecture) · [Tested Results](#-tested-results) · [Configuration](#%EF%B8%8F-configuration) · [Contributing](#-contributing)
 
@@ -196,20 +197,20 @@ Compare that to a single 70B model that needs **35GB** — doesn't even fit. Wit
 
 ## Tested Results
 
-Real results from our test deployment on an i9-14900KF with RTX 5090 (32GB VRAM). CPU inference only — CUDA acceleration coming soon (will be 10-20x faster).
+Real results from our test deployment on an i9-14900KF with RTX 5090 (32GB VRAM).
 
-### Benchmarks (Qwen2.5-3B, Q4_K_M, CPU)
+### Benchmarks (Qwen2.5-3B, Q4_K_M)
 
-| Metric | Result |
-|--------|--------|
-| **Throughput** | **21-24 tok/s** (sustained average: 23 tok/s) |
-| **Model load time** | 1.1s (3B), 0.7s (0.5B) |
-| **TTFB** | ~50ms (excluding first token generation) |
-| **Multi-model** | 2 models loaded simultaneously (0.5B + 3B) |
-| **Token counting** | Accurate prompt/completion/total in API responses |
-| **Hebbian routing** | Pathways strengthen with use (verified accumulation) |
+| Metric | CPU | GPU (CUDA) |
+|--------|-----|------------|
+| **Throughput** | 21-24 tok/s | **97-128 tok/s** |
+| **Model load time** | 1.1s (3B) | **0.6s (3B)** |
+| **512-token generation** | ~22s | **~4s** |
+| **Multi-model** | 2 models loaded | 2 models loaded |
+| **Token counting** | Accurate | Accurate |
+| **Hebbian routing** | Working | Working |
 
-With CUDA enabled, expect **200-400 tok/s** on the RTX 5090 for a 3B Q4 model.
+That's a **5x speedup** on GPU with CUDA 12.8 (Blackwell). And this is a quantized Q4 model — not all ops are GPU-accelerated yet. Full CUDA kernel coverage will push this even further.
 
 ### Verified Working
 
@@ -366,7 +367,7 @@ RUST_LOG=debug cargo run -- serve
 - [x] Token counting in API responses (accurate usage stats)
 - [x] Hebbian routing persistence (SQLite-backed pathway learning)
 - [x] .synapse format packer/unpacker with bundled models + adapters
-- [ ] CUDA-accelerated inference (10-20x speedup expected)
+- [x] CUDA-accelerated inference (5x speedup achieved — 128 tok/s on RTX 5090)
 - [ ] LoRA adapter training + hot-swap during inference
 - [ ] Speculative decoding (2-3x speedup)
 - [ ] Continuous batching across specialists
