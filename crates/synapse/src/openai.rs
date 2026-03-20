@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::server::SharedState;
 use crate::streaming;
-use crate::memory::KnowledgeExtractor;
+use crate::memory::{KnowledgeExtractor, HallucinationDetector};
 
 #[derive(Debug, Deserialize)]
 pub struct ChatCompletionRequest {
@@ -149,6 +149,24 @@ async fn complete_response(
                         &state.knowledge, &user_msg.content, prev_assistant, "general",
                     );
                 }
+            }
+
+            // Verify response against knowledge graph (hallucination detection)
+            let verification = HallucinationDetector::verify(&state.knowledge, &result.text);
+            if let Ok(ref v) = verification {
+                if !v.contradictions.is_empty() {
+                    tracing::warn!(
+                        "⚠️ Hallucination detected: {} contradictions in response",
+                        v.contradictions.len()
+                    );
+                }
+                tracing::debug!(
+                    "Verification: {:.0}% confidence, {} verified, {} unverified, {} contradictions",
+                    v.confidence * 100.0,
+                    v.verified_claims.len(),
+                    v.unverified_claims.len(),
+                    v.contradictions.len()
+                );
             }
 
             (result.text, Usage {
