@@ -112,12 +112,13 @@ async fn complete_response(
     let state = state.read().await;
     let model_name = request.model.clone().unwrap_or_else(|| state.config.base_model.clone());
 
-    // Route through orchestrator
+    // Route through orchestrator with Hebbian routing
     let result = state.orchestrator.process(
         &request.messages,
         &state.engine,
         request.max_tokens,
         request.temperature,
+        Some(&state.knowledge),
     ).await;
 
     let (response_text, usage) = match result {

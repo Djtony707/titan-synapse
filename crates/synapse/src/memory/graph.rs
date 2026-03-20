@@ -51,6 +51,27 @@ impl KnowledgeGraph {
                 rejected TEXT NOT NULL,
                 created_at TEXT DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS routing_pathways (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pathway TEXT NOT NULL UNIQUE,
+                success_count INTEGER DEFAULT 0,
+                failure_count INTEGER DEFAULT 0,
+                avg_score REAL DEFAULT 0.0,
+                last_used TEXT DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_pathway ON routing_pathways(pathway);
+
+            CREATE TABLE IF NOT EXISTS specialist_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                specialist TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                request_count INTEGER DEFAULT 0,
+                avg_score REAL DEFAULT 0.0,
+                avg_tok_per_sec REAL DEFAULT 0.0,
+                last_used TEXT DEFAULT (datetime('now')),
+                UNIQUE(specialist, domain)
+            );
         ")?;
 
         Ok(Self { conn: Mutex::new(conn) })
@@ -112,6 +133,90 @@ impl KnowledgeGraph {
         Ok(count)
     }
 
+    /// Reinforce a routing pathway (Hebbian: pathways that fire together, wire together)
+    pub fn reinforce_pathway(&self, specialists: &[String], score: f32) -> Result<()> {
+        let pathway = specialists.join("+");
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO routing_pathways (pathway, success_count, avg_score, last_used)
+             VALUES (?1, 1, ?2, datetime('now'))
+             ON CONFLICT(pathway) DO UPDATE SET
+                success_count = success_count + 1,
+                avg_score = (avg_score * success_count + ?2) / (success_count + 1),
+                last_used = datetime('now')",
+            rusqlite::params![pathway, score],
+        )?;
+        Ok(())
+    }
+
+    /// Record a pathway failure
+    pub fn weaken_pathway(&self, specialists: &[String]) -> Result<()> {
+        let pathway = specialists.join("+");
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO routing_pathways (pathway, failure_count, last_used)
+             VALUES (?1, 1, 0.0, datetime('now'))
+             ON CONFLICT(pathway) DO UPDATE SET
+                failure_count = failure_count + 1,
+                last_used = datetime('now')",
+            rusqlite::params![pathway],
+        )?;
+        Ok(())
+    }
+
+    /// Get pathway strength (success_count - failure_count, weighted by avg_score)
+    pub fn pathway_strength(&self, specialists: &[String]) -> Result<f64> {
+        let pathway = specialists.join("+");
+        let conn = self.conn.lock().unwrap();
+        let result: f64 = conn.query_row(
+            "SELECT (success_count - failure_count) * avg_score FROM routing_pathways WHERE pathway = ?1",
+            [&pathway],
+            |row| row.get(0),
+        ).unwrap_or(0.0);
+        Ok(result)
+    }
+
+    /// Get top routing pathways by strength
+    pub fn top_pathways(&self, limit: u32) -> Result<Vec<(String, i64, f64)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT pathway, (success_count - failure_count) as strength, avg_score
+             FROM routing_pathways
+             ORDER BY strength * avg_score DESC
+             LIMIT ?1"
+        )?;
+        let results = stmt.query_map([limit], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, f64>(2)?,
+            ))
+        })?.collect::<Result<Vec<_>, _>>()?;
+        Ok(results)
+    }
+
+    /// Update specialist stats for a domain
+    pub fn update_specialist_stats(
+        &self,
+        specialist: &str,
+        domain: &str,
+        score: f32,
+        tok_per_sec: f64,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO specialist_stats (specialist, domain, request_count, avg_score, avg_tok_per_sec, last_used)
+             VALUES (?1, ?2, 1, ?3, ?4, datetime('now'))
+             ON CONFLICT(specialist, domain) DO UPDATE SET
+                request_count = request_count + 1,
+                avg_score = (avg_score * request_count + ?3) / (request_count + 1),
+                avg_tok_per_sec = (avg_tok_per_sec * request_count + ?4) / (request_count + 1),
+                last_used = datetime('now')",
+            rusqlite::params![specialist, domain, score, tok_per_sec],
+        )?;
+        Ok(())
+    }
+
     /// Get total facts count
     pub fn fact_count(&self) -> Result<u32> {
         let count: u32 = self.conn.lock().unwrap().query_row(
@@ -138,6 +243,39 @@ mod tests {
 
         let facts = kg.query_facts("Python").unwrap();
         assert_eq!(facts.len(), 2);
+    }
+
+    #[test]
+    fn test_hebbian_routing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let kg = KnowledgeGraph::new(&db_path).unwrap();
+
+        // Reinforce a pathway multiple times
+        let pathway = vec!["python_expert".to_string(), "reviewer".to_string()];
+        kg.reinforce_pathway(&pathway, 4.5).unwrap();
+        kg.reinforce_pathway(&pathway, 4.8).unwrap();
+
+        let strength = kg.pathway_strength(&pathway).unwrap();
+        assert!(strength > 0.0, "Pathway should have positive strength");
+
+        // Check top pathways
+        let top = kg.top_pathways(10).unwrap();
+        assert_eq!(top.len(), 1);
+        assert_eq!(top[0].0, "python_expert+reviewer");
+    }
+
+    #[test]
+    fn test_specialist_stats() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let kg = KnowledgeGraph::new(&db_path).unwrap();
+
+        kg.update_specialist_stats("python_expert", "coding", 4.5, 200.0).unwrap();
+        kg.update_specialist_stats("python_expert", "coding", 4.8, 220.0).unwrap();
+
+        // Should not error — stats are accumulated
+        kg.update_specialist_stats("sql_expert", "database", 4.0, 180.0).unwrap();
     }
 
     #[test]

@@ -67,13 +67,28 @@ async fn api_status(
     state: axum::extract::State<SharedState>,
 ) -> axum::Json<serde_json::Value> {
     let state = state.read().await;
+
+    let fact_count = state.knowledge.fact_count().unwrap_or(0);
+    let top_pathways = state.knowledge.top_pathways(5).unwrap_or_default();
+
     axum::Json(serde_json::json!({
         "status": "running",
         "version": env!("CARGO_PKG_VERSION"),
         "engine": "synapse",
+        "models_loaded": state.engine.loaded_models(),
+        "has_models": state.engine.has_models(),
         "specialists": state.config.specialists.iter().map(|s| &s.name).collect::<Vec<_>>(),
+        "adapters": state.engine.available_adapters(),
         "coordinator": state.config.coordinator_model,
         "base_model": state.config.base_model,
+        "knowledge": {
+            "facts": fact_count,
+        },
+        "hebbian_routing": {
+            "top_pathways": top_pathways.iter().map(|(p, s, avg)| {
+                serde_json::json!({"pathway": p, "strength": s, "avg_score": avg})
+            }).collect::<Vec<_>>(),
+        },
     }))
 }
 

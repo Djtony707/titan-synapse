@@ -20,6 +20,7 @@ pub async fn stream_response(
         &state_read.engine,
         request.max_tokens,
         request.temperature,
+        Some(&state_read.knowledge),
     ).await {
         Ok(result) => result.text,
         Err(e) => format!("Error: {e}"),

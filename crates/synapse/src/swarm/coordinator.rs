@@ -1,4 +1,5 @@
 use crate::config::SynapseConfig;
+use crate::memory::KnowledgeGraph;
 use super::orchestrator::{RoutingDecision, SubTask};
 
 /// Coordinator — routes requests to the right specialist(s)
@@ -6,8 +7,6 @@ use super::orchestrator::{RoutingDecision, SubTask};
 pub struct Coordinator {
     /// Keyword → specialist mapping (will be replaced by learned routing)
     keyword_routes: Vec<(Vec<String>, String)>,
-    /// Hebbian pathway strengths (specialist_combo → success_count)
-    pathway_strengths: std::collections::HashMap<String, u32>,
 }
 
 impl Coordinator {
@@ -23,12 +22,11 @@ impl Coordinator {
 
         Self {
             keyword_routes,
-            pathway_strengths: std::collections::HashMap::new(),
         }
     }
 
     /// Route a query to the appropriate specialist(s)
-    pub fn route(&self, query: &str) -> RoutingDecision {
+    pub fn route(&self, query: &str, knowledge: Option<&KnowledgeGraph>) -> RoutingDecision {
         let query_lower = query.to_lowercase();
         let words: Vec<&str> = query_lower.split_whitespace().collect();
 
@@ -44,6 +42,18 @@ impl Coordinator {
             .collect();
 
         scores.sort_by(|a, b| b.1.cmp(&a.1));
+
+        // Boost scores using Hebbian pathway strengths from the knowledge graph
+        if let Some(kg) = knowledge {
+            for (name, score) in &mut scores {
+                let pathway = vec![name.clone()];
+                if let Ok(strength) = kg.pathway_strength(&pathway) {
+                    // Add pathway strength as bonus (clamped to reasonable range)
+                    *score += (strength.min(10.0) as u32);
+                }
+            }
+            scores.sort_by(|a, b| b.1.cmp(&a.1));
+        }
 
         // Detect complexity indicators for swarm mode
         let complexity_keywords = ["and", "also", "plus", "then", "after", "build", "create", "implement"];
@@ -68,11 +78,5 @@ impl Coordinator {
             // Default to general specialist
             RoutingDecision::Single { specialist: "general".into() }
         }
-    }
-
-    /// Record a successful pathway (Hebbian learning)
-    pub fn reinforce_pathway(&mut self, specialists: &[String]) {
-        let key = specialists.join("+");
-        *self.pathway_strengths.entry(key).or_insert(0) += 1;
     }
 }
