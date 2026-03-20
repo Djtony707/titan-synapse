@@ -15,6 +15,8 @@ pub struct LoadedModel {
     pub tokenizer: Tokenizer,
     pub device: Device,
     pub eos_token_id: u32,
+    /// Additional stop token IDs (im_start, im_end, etc.)
+    pub stop_token_ids: Vec<u32>,
 }
 
 impl LoadedModel {
@@ -35,15 +37,22 @@ impl LoadedModel {
         let tokenizer = Tokenizer::from_file(tokenizer_path)
             .map_err(|e| anyhow::anyhow!("Failed to load tokenizer: {e}"))?;
 
-        // Find EOS token
+        // Find EOS and stop tokens
         let eos_token_id = tokenizer.token_to_id("<|endoftext|>")
             .or_else(|| tokenizer.token_to_id("<|im_end|>"))
             .or_else(|| tokenizer.token_to_id("</s>"))
             .unwrap_or(2);
 
+        // Collect all tokens that should stop generation
+        let stop_candidates = ["<|im_end|>", "<|im_start|>", "<|endoftext|>", "</s>", "<|end|>"];
+        let stop_token_ids: Vec<u32> = stop_candidates.iter()
+            .filter_map(|tok| tokenizer.token_to_id(tok))
+            .collect();
+
         tracing::info!(
-            "Model '{name}' loaded in {:.1}s (eos_token_id={eos_token_id})",
-            start.elapsed().as_secs_f32()
+            "Model '{name}' loaded in {:.1}s (eos={eos_token_id}, stop_tokens={})",
+            start.elapsed().as_secs_f32(),
+            stop_token_ids.len()
         );
 
         Ok(Self {
@@ -53,6 +62,7 @@ impl LoadedModel {
             tokenizer,
             device: device.clone(),
             eos_token_id,
+            stop_token_ids,
         })
     }
 
@@ -95,14 +105,14 @@ impl LoadedModel {
 
         // Sample first token
         let mut next_token = sampler.sample(&logits_vec);
+
+        if self.is_stop_token(next_token) {
+            return Ok(String::new());
+        }
         generated_tokens.push(next_token);
 
         // Autoregressive generation
         for _ in 1..max_tokens {
-            if next_token == self.eos_token_id {
-                break;
-            }
-
             let input = Tensor::new(&[next_token], &self.device)?
                 .unsqueeze(0)?; // (1, 1)
             let logits = self.model.forward(&input, pos)?;
@@ -113,9 +123,10 @@ impl LoadedModel {
             let logits_vec: Vec<f32> = logits_flat.to_vec1()?;
 
             next_token = sampler.sample(&logits_vec);
-            if next_token != self.eos_token_id {
-                generated_tokens.push(next_token);
+            if self.is_stop_token(next_token) {
+                break;
             }
+            generated_tokens.push(next_token);
         }
 
         tracing::info!(
@@ -125,6 +136,10 @@ impl LoadedModel {
         );
 
         self.decode_tokens(&generated_tokens)
+    }
+
+    fn is_stop_token(&self, token: u32) -> bool {
+        token == self.eos_token_id || self.stop_token_ids.contains(&token)
     }
 
     fn decode_tokens(&self, tokens: &[u32]) -> Result<String> {
