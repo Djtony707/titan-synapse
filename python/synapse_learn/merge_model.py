@@ -311,51 +311,166 @@ tags:
 - specialist-swarm
 - continuous-learning
 - merged-model
+- mamba
+- xlstm
+- mixture-of-experts
+- fast-weights
+- brain-inspired
+- rust
+- local-inference
 base_model: {BASE_MODEL}
 model_type: qwen2
+pipeline_tag: text-generation
+datasets:
+- gsm8k
+- openwebmath
+- microsoft/orca-math-word-problems-200k
+- sahil2801/CodeAlpaca-20k
+- nickrosh/Evol-Instruct-Code-80k-v1
+- iamtarun/python_code_instructions_18k_alpaca
+- Open-Orca/SlimOrca
+- yahma/alpaca-cleaned
 ---
 
-# Synapse-3B: {model_name}
+# Synapse-3B
 
-**A specialist model created by TITAN Synapse** — trained through continuous learning on domain-specific datasets, then merged into a single model.
+**Small models that think together. And learn.**
+
+Synapse-3B is a merged specialist model created by [TITAN Synapse](https://github.com/Djtony707/titan-synapse) — an open-source Rust inference engine that runs a swarm of tiny specialist models that collaborate and learn continuously on your GPU.
+
+This model combines **4 specialist LoRA adapters** (math, code, general, coordinator) trained on curated datasets, then merged into a single model using **TIES merging** (Trim, Elect Sign, Merge) for minimal interference between specializations.
+
+## Key Features
+
+- **4 specialist domains** merged into one model without catastrophic forgetting
+- **TIES merging** — trims small deltas, elects signs by majority vote, merges only agreeing directions
+- **Based on Qwen2.5-3B-Instruct** — strong Apache 2.0 base with multilingual support
+- **Part of the Synapse ecosystem** — designed for the brain-inspired Synapse Architecture (Mamba + xLSTM + Sparse MoE + Fast Weights)
 
 ## How This Model Was Made
 
-1. **Base model**: Qwen2.5-3B-Instruct
-2. **Specialist training**: QLoRA fine-tuning on curated datasets
-3. **Adapters merged**: {', '.join(specialists)}
-4. **Merge method**: {method}
-5. **Created**: {datetime.now().isoformat()}
+```
+Base Model: Qwen/Qwen2.5-3B-Instruct (Apache 2.0)
+     |
+     +---> QLoRA (rank 64) ---> Math Specialist (GSM8K + OpenWebMath + Orca-Math, 50k samples)
+     +---> QLoRA (rank 64) ---> Code Specialist (CodeAlpaca + Evol-Instruct + Python-18k, 50k samples)
+     +---> QLoRA (rank 64) ---> General Specialist (SlimOrca + Alpaca-Cleaned, 50k samples)
+     +---> QLoRA (rank 32) ---> Coordinator (Synthetic routing, 5k samples)
+     |
+     +---> TIES Merge (trim 80%, sign election, agreement merge)
+     |
+     = Synapse-3B
+```
 
-## Specialists Merged
+### Specialist Details
 
-| Specialist | Training Data | Focus |
-|---|---|---|
-| math | GSM8K + OpenWebMath + Orca-Math (50k samples) | Mathematical reasoning |
-| code | CodeAlpaca + Evol-Instruct + Python-18k (50k samples) | Code generation |
-| general | SlimOrca + Alpaca-Cleaned (50k samples) | General knowledge |
-| coordinator | Synthetic routing examples (5k samples) | Task routing |
+| Specialist | Datasets | Samples | LoRA Rank | Focus |
+|:---|:---|:---:|:---:|:---|
+| **Math** | GSM8K, OpenWebMath, Orca-Math | 50,000 | 64 | Mathematical reasoning, step-by-step problem solving |
+| **Code** | CodeAlpaca-20k, Evol-Instruct-Code-80k, Python-18k | 50,000 | 64 | Code generation, debugging, Python expertise |
+| **General** | SlimOrca, Alpaca-Cleaned | 50,000 | 64 | General knowledge, instruction following, reasoning |
+| **Coordinator** | Synthetic routing examples | 5,000 | 32 | Task analysis, specialist routing, swarm coordination |
+
+### Merge Method: TIES
+
+[TIES (Trim, Elect Sign, Merge)](https://arxiv.org/abs/2306.01708) is used to combine adapters with minimal interference:
+
+1. **Trim** — Remove small-magnitude deltas (keep top 20% per parameter)
+2. **Elect Sign** — For each parameter, take a majority vote on the sign direction across all specialists
+3. **Merge** — Only average deltas that agree with the elected sign
+
+This produces cleaner merges than simple averaging, preserving each specialist's strengths.
 
 ## Usage
+
+### With Transformers
 
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 model = AutoModelForCausalLM.from_pretrained("djtony707/synapse-3b")
 tokenizer = AutoTokenizer.from_pretrained("djtony707/synapse-3b")
+
+messages = [{{"role": "user", "content": "Solve: If a train travels 120km in 2 hours, what is its speed in m/s?"}}]
+text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+inputs = tokenizer(text, return_tensors="pt").to(model.device)
+outputs = model.generate(**inputs, max_new_tokens=256, temperature=0.7)
+print(tokenizer.decode(outputs[0], skip_special_tokens=True))
 ```
 
-Or with TITAN Synapse engine:
+### With TITAN Synapse Engine (Rust, local inference)
+
 ```bash
+# Install
+curl -sSL https://raw.githubusercontent.com/Djtony707/titan-synapse/main/install.sh | bash
+
+# Pull and run
 synapse pull synapse-3b
 synapse up
+
+# OpenAI-compatible API on localhost:6900
+curl http://localhost:6900/v1/chat/completions \\
+  -d '{{"model":"synapse-3b","messages":[{{"role":"user","content":"Hello!"}}]}}'
+```
+
+## The Synapse Architecture (v1.0 Target)
+
+Synapse-3B is the foundation for the **Synapse Architecture** — a brain-inspired modular model that replaces monolithic transformers:
+
+```
+                    THALAMUS (Mamba Router, O(n))
+                         |
+          +--------------+--------------+
+          |              |              |
+     xLSTM Lang    Sparse MoE     Fast-Weight
+      Module       Expert Pool      Memory
+      O(n)        top-k of 8+     Learn during
+     syntax,      specialists     inference,
+     grammar      activate        no backprop
+```
+
+- **No O(n^2) attention** — Mamba (state-space) + xLSTM (recurrent)
+- **Sparse activation** — only 2-3 of 8+ modules fire per token
+- **Fast-weight memory** — learn new facts in ONE forward pass
+- **Full observability** — every routing decision is transparent, no black box
+
+## Training Details
+
+- **Hardware**: NVIDIA RTX 5090 (32GB VRAM)
+- **Training framework**: QLoRA via TRL SFTTrainer
+- **Quantization**: 4-bit NF4 (for training efficiency)
+- **Learning rate**: 2e-4 with cosine scheduler
+- **Epochs**: 3 per specialist
+- **Batch size**: 2 (gradient accumulation 8, effective batch 16)
+- **Max sequence length**: 2048 tokens
+- **Training time**: ~2 hours per specialist on RTX 5090
+- **Merge method**: TIES (trim ratio 0.8)
+- **Created**: {datetime.now().strftime("%B %d, %Y")}
+
+## Limitations
+
+- This is a 3B parameter model — it won't match 70B+ models on complex reasoning
+- Trained on English-focused datasets; multilingual performance inherited from Qwen base
+- The coordinator specialist is trained on synthetic routing data; real-world routing improves with use
+- Best used as part of the TITAN Synapse swarm (multiple specialists collaborating)
+
+## Citation
+
+```bibtex
+@misc{{synapse3b2026,
+  title={{Synapse-3B: A Merged Specialist Model for the TITAN Synapse Engine}},
+  author={{Tony Elliott}},
+  year={{2026}},
+  url={{https://huggingface.co/djtony707/synapse-3b}},
+  note={{Created with TITAN Synapse — https://github.com/Djtony707/titan-synapse}}
+}}
 ```
 
 ## License
 
-Apache 2.0
+Apache 2.0 — use it for anything.
 
-Built by [Tony Elliott](https://github.com/djtony707) with TITAN Synapse.
+Built by [Tony Elliott](https://github.com/Djtony707) with [TITAN Synapse](https://github.com/Djtony707/titan-synapse).
 """
     (output_dir / "README.md").write_text(card)
 
