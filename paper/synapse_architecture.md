@@ -44,6 +44,8 @@ I built this because I was frustrated. In early 2026 I bought an NVIDIA RTX 5090
 
 It was not enough. The models producing the best results — 70B, 120B, 405B parameter dense transformers — require 40–800 GB of VRAM in fp16. Even aggressively quantized to 4-bit, a 70B model needs ~35 GB, exceeding the 5090's capacity. I spent over $3,000 on the fastest consumer GPU ever made and still could not run the models I actually wanted to use, locally, without depending on someone else's cloud API.
 
+If the architecture that could solve this didn't exist yet, I figured I might as well build it.
+
 The question that motivated Synapse was direct: what if the architecture itself were different? Instead of a single dense model where every parameter fires on every token, what if you had a swarm of small specialists — each fitting comfortably in consumer VRAM — that only activate when their expertise is relevant? A 3B parameter model with 8 specialists and top-2 routing gives you the knowledge capacity of a much larger model at the inference cost of a small one. Add fast-weight memory so the model learns during inference, and you reduce the need for the massive pre-training data budgets that make large models large in the first place.
 
 I built Synapse for people who own hardware and want to use it — not rent compute from someone else.
