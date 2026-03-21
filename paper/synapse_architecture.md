@@ -1,6 +1,6 @@
 # TITAN Synapse: A Modular, O(n) Neural Architecture Combining Selective State Spaces, Extended LSTM, Sparse Mixture-of-Experts, and Fast-Weight Memory
 
-**Author:** Tony Elliott
+**Author:** Tony Elliott — Independent AI researcher, creator of the TITAN agent framework. Currently pursuing a degree in AI Software Engineering at Maestro AI College. Graduate of LA Film School (Music Production). Self-taught in technology.
 **Repository:** https://github.com/Djtony707/titan-synapse
 **HuggingFace:** https://huggingface.co/djtony707/synapse-3b
 **Date:** March 2026
@@ -40,9 +40,13 @@ The Synapse Architecture has 28 unit tests passing on CPU. It has not yet been t
 
 ### Motivation
 
-I built this because I was frustrated. In 2025 I bought an NVIDIA RTX 5090 — the most powerful consumer GPU available at the time: 32 GB of VRAM, Blackwell architecture, 1,792 GB/s memory bandwidth. It is the best hardware you can buy without enterprise procurement.
+Ever since I watched *Short Circuit*, *Batteries Not Included*, and *Bicentennial Man* as a kid, I have wanted to create an artificial intelligence that could help the world — and help others who are new to AI be able to run it themselves. That motivation has not changed.
 
-It was not enough. The models producing the best results — 70B, 120B, 405B parameter dense transformers — require 40–800 GB of VRAM in fp16. Even aggressively quantized to 4-bit, a 70B model needs ~35 GB, exceeding the 5090's capacity. I spent over $3,000 on the fastest consumer GPU ever made and still could not run the models I actually wanted to use, locally, without depending on someone else's cloud API.
+I am self-taught in technology. I went to LA Film School for Music Production, and I am currently pursuing a degree in AI Software Engineering at Maestro AI College. I also created the TITAN agent framework, an open-source AI assistant with 149 tools and 30+ providers. I build things to learn, and I learn by building.
+
+I built Synapse because I was frustrated. In 2025 I bought an NVIDIA RTX 5090 — the most powerful consumer GPU available at the time: 32 GB of VRAM, Blackwell architecture, 1,792 GB/s memory bandwidth. It was out of stock everywhere; I finally found one on Amazon. I built the workstation myself with my son — an i9-14900KF, 64 GB DDR5-6000, the works.
+
+It was not enough. I wanted to run 70B parameter models, or even the 120B and higher models, locally. Anything smaller felt like a waste of time — smaller models hallucinate more, produce more errors, and need more hand-holding. But a 70B model quantized to 4-bit still needs ~35 GB of VRAM, exceeding the 5090's 32 GB capacity. I spent over $3,000 on the fastest consumer GPU ever made and still could not run the models I actually wanted to use without depending on someone else's cloud API.
 
 If the architecture that could solve this didn't exist yet, I figured I might as well build it.
 
@@ -513,7 +517,7 @@ The Specialist Swarm System is a separate, operational contribution. It runs a c
 
 Synapse-3B, published on HuggingFace at `djtony707/synapse-3b`, is a practical artifact: four domain-specialist QLoRA adapters merged via TIES into a single Qwen3-3B transformer. It uses conventional transformer architecture and should not be conflated with the novel Synapse Architecture modules.
 
-I built the entire system — architecture design, implementation, specialist training, TIES merging, benchmarking, and deployment — as an independent research effort, running on a single consumer-grade workstation (RTX 5090, i9-14900KF, 64 GB DDR5). No cloud compute, no institutional backing, no training cluster. This project is proof that meaningful AI architecture research is possible with consumer hardware and determination.
+I built the entire system — architecture design, implementation, specialist training, TIES merging, benchmarking, and deployment — as an independent research effort, running on a workstation I built with my son (RTX 5090, i9-14900KF, 64 GB DDR5). No cloud compute beyond Ollama cloud models for comparison baselines. No institutional backing, no training cluster. This project is proof that meaningful AI architecture research is possible with consumer hardware and determination.
 
 The codebase is open source under the Apache 2.0 license. All source code, test results, and configuration files are available in the repository.
 
