@@ -179,7 +179,13 @@ def merge_all_adapters(output_dir: Path, method: str = "ties"):
         for specialist in all_deltas:
             for key in all_deltas[specialist]:
                 delta = all_deltas[specialist][key]
-                threshold = torch.quantile(delta.abs().float(), TRIM_RATIO)
+                flat = delta.abs().float().flatten()
+                # quantile() can't handle huge tensors — sample if needed
+                if flat.numel() > 1_000_000:
+                    indices = torch.randperm(flat.numel())[:1_000_000]
+                    threshold = torch.quantile(flat[indices], TRIM_RATIO)
+                else:
+                    threshold = torch.quantile(flat, TRIM_RATIO)
                 mask = delta.abs() >= threshold
                 all_deltas[specialist][key] = delta * mask
 

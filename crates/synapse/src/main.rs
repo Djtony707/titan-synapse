@@ -10,6 +10,7 @@ mod learn;
 mod memory;
 mod vram;
 mod format;
+mod arch;
 
 use clap::{Parser, Subcommand};
 use anyhow::Result;
