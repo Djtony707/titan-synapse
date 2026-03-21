@@ -14,7 +14,9 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-2024_Edition-orange.svg)](https://www.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/Tests-37%2F37_Passing-brightgreen.svg)](#tests)
+[![Tests](https://img.shields.io/badge/Tests-65%2F65_Passing-brightgreen.svg)](#tests)
+[![HuggingFace](https://img.shields.io/badge/Model-Synapse--3B-yellow.svg)](https://huggingface.co/djtony707/synapse-3b)
+[![npm](https://img.shields.io/badge/npm-v0.2.0-red.svg)](https://www.npmjs.com/package/titan-synapse)
 [![CUDA](https://img.shields.io/badge/CUDA-12.8_(Blackwell)-76B900.svg)](https://developer.nvidia.com/cuda-toolkit)
 
 [Quick Start](#-quick-start) · [How It Works](#-how-it-works) · [Architecture](#-architecture) · [Tested Results](#-tested-results) · [Configuration](#%EF%B8%8F-configuration) · [Contributing](#-contributing)
@@ -195,6 +197,40 @@ titan-synapse/
 └── docker-compose.yml            # GPU-accelerated learning container
 ```
 
+### The Synapse Architecture — Beyond Transformers
+
+The v1.0 architecture replaces monolithic transformer blocks with brain-inspired modular processing. Every component is O(n) — no quadratic attention anywhere. Full source in `crates/synapse/src/arch/`.
+
+```
+                    THALAMUS (Mamba Router)
+                    O(n) state-space model
+                    Routes tokens to specialists
+                    Hebbian pathway learning
+                         │
+          ┌──────────────┼──────────────┐
+          │              │              │
+     ┌────▼────┐   ┌────▼────┐   ┌────▼────┐
+     │  xLSTM  │   │  Sparse │   │  Fast   │
+     │Language │   │   MoE   │   │ Weight  │
+     │ Module  │   │ Experts │   │ Memory  │
+     │         │   │         │   │         │
+     │Exp gates│   │Top-k of │   │Learn in │
+     │Matrix   │   │8+ fire  │   │1 forward│
+     │memory   │   │per token│   │pass, no │
+     │O(n)     │   │~800M    │   │backprop │
+     │         │   │active   │   │         │
+     └─────────┘   └─────────┘   └─────────┘
+```
+
+| Module | What It Does | Replaces | Complexity |
+|--------|-------------|----------|------------|
+| **Thalamus** | Routes tokens to the right specialists | Attention-based routing | O(n) |
+| **xLSTM** | Syntax, grammar, language fluency | Transformer self-attention | O(n) |
+| **Expert Pool** | Specialized knowledge (top-k sparse activation) | Dense FFN layers | O(n) per expert |
+| **Fast Weights** | Learn new facts during inference — no training needed | RAG / in-context learning | O(n) |
+
+**28 architecture tests passing.** Full introspection on every module — no black box. See `GET /api/introspect` for real-time visibility into routing decisions, gate values, memory writes, and expert activations.
+
 ### VRAM Budget (32GB GPU)
 
 | Component | VRAM |
@@ -295,7 +331,7 @@ MMLU, HumanEval, and GSM8K are now considered **saturated benchmarks** — front
 | Test | Result | Details |
 |------|--------|---------|
 | `cargo build --release` | PASS | Clean compilation, Rust 2024 edition |
-| `cargo test` | **37/37 passing** | Config, sampler, KV cache, knowledge graph, manifest, packer, Hebbian, coordinator, LoRA, extractor, hallucination, spawner, cloud fallback |
+| `cargo test` | **65/65 passing** | Config, sampler, KV cache, knowledge graph, manifest, packer, Hebbian, coordinator, LoRA, extractor, hallucination, spawner, cloud fallback + 28 architecture tests (Mamba, xLSTM, Thalamus, Expert, Fast Weights, SynapseModel) |
 | `synapse bench` | PASS | 4 prompts, 759 tokens, 23 tok/s average (CPU) |
 | `synapse status` | PASS | Shows GPU info, VRAM usage, specialist list |
 | `GET /health` | PASS | Returns "ok" |
@@ -354,7 +390,35 @@ test format::manifest::tests::test_manifest_creation ... ok
 test format::manifest::tests::test_manifest_serialization ... ok
 test format::packer::tests::test_pack_and_unpack ... ok
 test format::packer::tests::test_list_bundles ... ok
-test result: ok. 37 passed; 0 failed; 0 ignored
+test arch::mamba::tests::test_mamba_layer_creation ... ok
+test arch::mamba::tests::test_mamba_forward ... ok
+test arch::mamba::tests::test_mamba_state_persistence ... ok
+test arch::mamba::tests::test_silu ... ok
+test arch::xlstm::tests::test_xlstm_creation ... ok
+test arch::xlstm::tests::test_xlstm_forward ... ok
+test arch::xlstm::tests::test_xlstm_introspection ... ok
+test arch::xlstm::tests::test_xlstm_state_persistence ... ok
+test arch::thalamus::tests::test_thalamus_creation ... ok
+test arch::thalamus::tests::test_thalamus_routing ... ok
+test arch::thalamus::tests::test_thalamus_introspection ... ok
+test arch::thalamus::tests::test_hebbian_learning ... ok
+test arch::thalamus::tests::test_status_summary ... ok
+test arch::expert::tests::test_expert_creation ... ok
+test arch::expert::tests::test_expert_forward ... ok
+test arch::expert::tests::test_expert_pool ... ok
+test arch::expert::tests::test_expert_pool_forward ... ok
+test arch::expert::tests::test_expert_introspection ... ok
+test arch::fast_weights::tests::test_fast_weight_creation ... ok
+test arch::fast_weights::tests::test_fast_weight_forward ... ok
+test arch::fast_weights::tests::test_fast_weight_introspection ... ok
+test arch::fast_weights::tests::test_fast_weight_memory_persists ... ok
+test arch::synapse_model::tests::test_model_creation ... ok
+test arch::synapse_model::tests::test_param_counting ... ok
+test arch::synapse_model::tests::test_model_forward ... ok
+test arch::synapse_model::tests::test_model_introspection ... ok
+test arch::synapse_model::tests::test_model_summary ... ok
+test arch::synapse_model::tests::test_model_reset ... ok
+test result: ok. 65 passed; 0 failed; 0 ignored
 ```
 
 ---
@@ -450,7 +514,7 @@ This thing is early. There's a lot to build and a lot to break.
 git clone https://github.com/Djtony707/titan-synapse
 cd titan-synapse
 cargo build
-cargo test  # 37/37 should pass
+cargo test  # 65/65 should pass
 
 # Run with debug logging
 RUST_LOG=debug cargo run -- serve
@@ -489,11 +553,15 @@ RUST_LOG=debug cargo run -- serve
 - [x] Public dataset training pipeline (OpenWebMath, The Stack, SlimPajama, etc.)
 - [x] Speculative decoding scaffold (draft + verify architecture)
 - [x] LoRA adapter training + hot-swap during inference
+- [x] Specialist model merge (TIES merging — 4 adapters into Synapse-3B)
+- [x] Synapse Architecture: Mamba router + xLSTM + Sparse MoE + Fast Weights (28 tests)
+- [x] Full model introspection API (no black box — see every routing decision)
+- [x] Synapse-3B published on [HuggingFace](https://huggingface.co/djtony707/synapse-3b)
 - [ ] Full speculative decoding (shared KV cache state)
 - [ ] Continuous batching across specialists
 - [ ] Doc-to-LoRA knowledge crystallization
 - [ ] Distributed swarm across multiple machines
-- [ ] Custom Synapse base model (trained specifically for swarm coordination)
+- [ ] Train Synapse Architecture from scratch on RTX 5090
 
 ---
 

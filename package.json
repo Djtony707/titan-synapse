@@ -1,6 +1,6 @@
 {
   "name": "titan-synapse",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "A Rust inference engine that runs a swarm of tiny specialist models that collaborate and learn continuously — on your GPU.",
   "main": "install.sh",
   "scripts": {
