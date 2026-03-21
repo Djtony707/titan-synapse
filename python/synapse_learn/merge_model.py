@@ -267,6 +267,15 @@ def merge_all_adapters(output_dir: Path, method: str = "ties"):
     else:
         raise ValueError(f"Unknown merge method: {method}")
 
+    # Free intermediate memory before loading final model
+    import gc
+    del all_deltas, base_state
+    if 'merged_deltas' in dir():
+        del merged_deltas
+    if 'elected_signs' in dir():
+        del elected_signs
+    gc.collect()
+
     # Load a fresh base model and replace its weights
     logger.info("Loading fresh base model for weight replacement...")
     final_model = AutoModelForCausalLM.from_pretrained(
@@ -274,13 +283,17 @@ def merge_all_adapters(output_dir: Path, method: str = "ties"):
         torch_dtype=torch.bfloat16,
         device_map="cpu",
     )
+    logger.info("Applying merged weights to base model...")
     final_model.load_state_dict(final_state)
+    del final_state
+    gc.collect()
 
     # Save
     output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Saving Synapse-3B to {output_dir}")
     final_model.save_pretrained(output_dir, safe_serialization=True)
     tokenizer.save_pretrained(output_dir)
+    logger.info("Save complete.")
 
     write_model_card(output_dir, "synapse-3b", list(available.keys()), method)
     logger.info(f"Synapse-3B model saved: {output_dir}")
