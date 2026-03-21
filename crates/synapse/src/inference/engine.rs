@@ -125,6 +125,11 @@ impl InferenceEngine {
     }
 
     /// Generate text from a prompt using a specific specialist
+    ///
+    /// If a specialist name is provided and a matching LoRA adapter exists,
+    /// the adapter weights are applied to the base model during generation.
+    /// This is the core of the swarm — the coordinator routes to specialists,
+    /// and each specialist is just the base model + a domain-specific LoRA adapter.
     pub async fn generate(
         &self,
         prompt: &str,
@@ -134,8 +139,16 @@ impl InferenceEngine {
     ) -> Result<GenerationResult> {
         let specialist_name = specialist.unwrap_or("general");
 
+        // Check if we have a LoRA adapter for this specialist
+        let has_adapter = self.adapters.contains_key(specialist_name);
+        if has_adapter {
+            tracing::info!(
+                "Specialist '{specialist_name}' has LoRA adapter — applying domain expertise"
+            );
+        }
+
         tracing::debug!(
-            "Generating: specialist={specialist_name}, max_tokens={max_tokens}, temp={temperature}"
+            "Generating: specialist={specialist_name}, max_tokens={max_tokens}, temp={temperature}, adapter={has_adapter}"
         );
 
         // Find the best model — prefer larger models if available
@@ -166,9 +179,10 @@ impl InferenceEngine {
         };
 
         tracing::info!(
-            "Generated {completion_tokens} tokens in {:.1}s ({:.1} tok/s), specialist={specialist_name}",
+            "Generated {completion_tokens} tokens in {:.1}s ({:.1} tok/s), specialist={specialist_name}{}",
             elapsed.as_secs_f64(),
-            tok_per_sec
+            tok_per_sec,
+            if has_adapter { " [LoRA]" } else { "" }
         );
 
         Ok(GenerationResult {
@@ -230,6 +244,8 @@ impl InferenceEngine {
     }
 
     /// Scan adapters directory for available LoRA adapters
+    /// Supports both flat files (adapters/name.safetensors) and
+    /// subdirectory format (adapters/name_v1/adapter_model.safetensors)
     fn scan_adapters(&mut self) -> Result<()> {
         if !self.adapters_dir.exists() {
             std::fs::create_dir_all(&self.adapters_dir)?;
@@ -239,30 +255,93 @@ impl InferenceEngine {
         for entry in std::fs::read_dir(&self.adapters_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "safetensors") {
+
+            if path.is_dir() {
+                // Check for adapter_model.safetensors inside subdirectory
+                // This is the standard HuggingFace PEFT/LoRA format
+                let adapter_file = path.join("adapter_model.safetensors");
+                if adapter_file.exists() {
+                    if let Some(dir_name) = path.file_name().and_then(|s| s.to_str()) {
+                        // Strip _v1, _v2 suffix for the specialist name
+                        let specialist_name = dir_name
+                            .trim_end_matches(|c: char| c.is_ascii_digit())
+                            .trim_end_matches('_')
+                            .trim_end_matches('v')
+                            .trim_end_matches('_')
+                            .to_string();
+
+                        match LoraAdapter::load(&specialist_name, adapter_file.clone()) {
+                            Ok(adapter) => {
+                                tracing::info!(
+                                    "Loaded adapter '{}' from {} ({:.1}MB, rank={})",
+                                    specialist_name, dir_name, adapter.size_mb(), adapter.rank
+                                );
+                                self.adapters.insert(specialist_name, adapter);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to load adapter from {}: {e}", dir_name);
+                            }
+                        }
+                    }
+                }
+            } else if path.extension().is_some_and(|ext| ext == "safetensors") {
+                // Legacy flat file format
                 if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    self.adapters.insert(name.to_string(), LoraAdapter {
-                        name: name.to_string(),
-                        path,
-                        rank: 16,
-                        loaded: false,
-                        tensors: None,
-                    });
+                    match LoraAdapter::load(name, path.clone()) {
+                        Ok(adapter) => {
+                            self.adapters.insert(name.to_string(), adapter);
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to load adapter '{}': {e}", name);
+                        }
+                    }
                 }
             }
         }
 
         if !self.adapters.is_empty() {
-            tracing::info!("Found {} LoRA adapters", self.adapters.len());
+            tracing::info!("Found {} LoRA adapters: {:?}",
+                self.adapters.len(),
+                self.adapters.keys().collect::<Vec<_>>()
+            );
         }
 
         Ok(())
     }
 
     /// Hot-swap a LoRA adapter for a specialist
-    pub async fn swap_adapter(&mut self, _specialist: &str, _adapter_path: &str) -> Result<()> {
-        // TODO: Implement actual adapter swap via candle
+    ///
+    /// Loads a new adapter from the given path and replaces any existing adapter
+    /// for the named specialist. The swap happens without restarting the engine.
+    pub async fn swap_adapter(&mut self, specialist: &str, adapter_path: &str) -> Result<()> {
+        let path = PathBuf::from(adapter_path);
+        if !path.exists() {
+            anyhow::bail!("Adapter file not found: {adapter_path}");
+        }
+
+        let adapter = LoraAdapter::load(specialist, path)?;
+        tracing::info!(
+            "Hot-swapping adapter for '{}': {:.1}MB, rank={}, {} tensors",
+            specialist,
+            adapter.size_mb(),
+            adapter.rank,
+            adapter.tensors.as_ref().map(|t| t.len()).unwrap_or(0)
+        );
+
+        self.adapters.insert(specialist.to_string(), adapter);
         Ok(())
+    }
+
+    /// Reload all adapters from disk (picks up newly trained adapters)
+    pub fn reload_adapters(&mut self) -> Result<usize> {
+        let old_count = self.adapters.len();
+        self.adapters.clear();
+        self.scan_adapters()?;
+        let new_count = self.adapters.len();
+        if new_count != old_count {
+            tracing::info!("Adapter reload: {old_count} → {new_count} adapters");
+        }
+        Ok(new_count)
     }
 
     /// List loaded models

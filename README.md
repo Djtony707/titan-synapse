@@ -488,7 +488,7 @@ RUST_LOG=debug cargo run -- serve
 - [x] Community specialist hub (push/pull/search on HuggingFace)
 - [x] Public dataset training pipeline (OpenWebMath, The Stack, SlimPajama, etc.)
 - [x] Speculative decoding scaffold (draft + verify architecture)
-- [ ] LoRA adapter training + hot-swap during inference
+- [x] LoRA adapter training + hot-swap during inference
 - [ ] Full speculative decoding (shared KV cache state)
 - [ ] Continuous batching across specialists
 - [ ] Doc-to-LoRA knowledge crystallization

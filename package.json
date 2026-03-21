@@ -1,0 +1,36 @@
+{
+  "name": "titan-synapse",
+  "version": "0.1.1",
+  "description": "A Rust inference engine that runs a swarm of tiny specialist models that collaborate and learn continuously — on your GPU.",
+  "main": "install.sh",
+  "scripts": {
+    "postinstall": "echo 'titan-synapse is a Rust binary. Run: curl -sSL https://raw.githubusercontent.com/Djtony707/titan-synapse/main/install.sh | bash'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Djtony707/titan-synapse.git"
+  },
+  "keywords": [
+    "ai",
+    "inference",
+    "llm",
+    "local",
+    "gpu",
+    "specialist",
+    "swarm",
+    "lora",
+    "qlora",
+    "continuous-learning",
+    "rust",
+    "gguf",
+    "openai-compatible",
+    "self-improving",
+    "titan"
+  ],
+  "author": "Tony Elliott <djtony707@gmail.com>",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/Djtony707/titan-synapse/issues"
+  },
+  "homepage": "https://github.com/Djtony707/titan-synapse#readme"
+}

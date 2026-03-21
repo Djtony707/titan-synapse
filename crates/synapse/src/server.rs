@@ -47,6 +47,8 @@ pub async fn run(config: SynapseConfig, port: u16) -> Result<()> {
         // Status + Metacognition
         .route("/api/status", get(api_status))
         .route("/api/confidence", get(api_confidence))
+        // Adapter management
+        .route("/api/adapters/reload", post(api_reload_adapters))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -131,6 +133,29 @@ async fn api_confidence(
             }
         }
     }))
+}
+
+/// Reload LoRA adapters from disk — picks up newly trained adapters without restart
+async fn api_reload_adapters(
+    state: axum::extract::State<SharedState>,
+) -> axum::Json<serde_json::Value> {
+    let mut state = state.write().await;
+    match state.engine.reload_adapters() {
+        Ok(count) => {
+            tracing::info!("Reloaded adapters: {count} found");
+            axum::Json(serde_json::json!({
+                "status": "ok",
+                "adapters_loaded": count,
+                "adapters": state.engine.available_adapters(),
+            }))
+        }
+        Err(e) => {
+            axum::Json(serde_json::json!({
+                "status": "error",
+                "error": e.to_string(),
+            }))
+        }
+    }
 }
 
 async fn shutdown_signal() {
