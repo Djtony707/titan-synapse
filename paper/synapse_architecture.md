@@ -519,6 +519,10 @@ Synapse-3B, published on HuggingFace at `djtony707/synapse-3b`, is a practical a
 
 I built the entire system — architecture design, implementation, specialist training, TIES merging, benchmarking, and deployment — as an independent research effort, running on a workstation I built with my son (RTX 5090, i9-14900KF, 64 GB DDR5). No cloud compute beyond Ollama cloud models for comparison baselines. No institutional backing, no training cluster. This project is proof that meaningful AI architecture research is possible with consumer hardware and determination.
 
+### Acknowledgments
+
+A huge shout out to my grandparents, who have believed in me and helped me since day one of this. None of this happens without them.
+
 The codebase is open source under the Apache 2.0 license. All source code, test results, and configuration files are available in the repository.
 
 ---
