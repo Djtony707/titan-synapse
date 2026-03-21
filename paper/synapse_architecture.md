@@ -38,6 +38,18 @@ The Synapse Architecture has 28 unit tests passing on CPU. It has not yet been t
 
 ## Introduction
 
+### Motivation
+
+I built this because I was frustrated. In early 2026 I bought an NVIDIA RTX 5090 — the most powerful consumer GPU available at the time: 32 GB of VRAM, Blackwell architecture, 1,792 GB/s memory bandwidth. It is the best hardware you can buy without enterprise procurement.
+
+It was not enough. The models producing the best results — 70B, 120B, 405B parameter dense transformers — require 40–800 GB of VRAM in fp16. Even aggressively quantized to 4-bit, a 70B model needs ~35 GB, exceeding the 5090's capacity. I spent $2,000 on the fastest consumer GPU ever made and still could not run the models I actually wanted to use, locally, without depending on someone else's cloud API.
+
+The question that motivated Synapse was direct: what if the architecture itself were different? Instead of a single dense model where every parameter fires on every token, what if you had a swarm of small specialists — each fitting comfortably in consumer VRAM — that only activate when their expertise is relevant? A 3B parameter model with 8 specialists and top-2 routing gives you the knowledge capacity of a much larger model at the inference cost of a small one. Add fast-weight memory so the model learns during inference, and you reduce the need for the massive pre-training data budgets that make large models large in the first place.
+
+I built Synapse for people who own hardware and want to use it — not rent compute from someone else.
+
+### Problem Statement
+
 Large language models trained on fixed datasets with frozen weights have three structural limitations that this work addresses.
 
 **Quadratic attention complexity.** The dominant transformer architecture [Vaswani et al., 2017] computes self-attention in O(n²) time and space with respect to sequence length. This imposes practical context limits and makes long-document processing expensive. A 32k-token context with standard multi-head attention requires roughly 10^9 attention score computations per layer.
@@ -498,6 +510,8 @@ TITAN Synapse presents two independent contributions. The Synapse Architecture i
 The Specialist Swarm System is a separate, operational contribution. It runs a coordinated set of small specialist models sharing a common base, routes queries using Hebbian pathway learning, and continuously improves through QLoRA fine-tuning and DPO from live conversations. Running in bfloat16 on a single RTX 5090 at 106.3 tokens per second with 11.2ms time-to-first-token, the system achieves MMLU 62.6% (14,042 questions, 5-shot) and GSM8K 18.9% (1,319 problems, 8-shot CoT) using only 6.43 GB VRAM. The MMLU result exceeds the published Qwen2-3B baseline of ~53% by approximately 10 points, which we attribute to the TIES merging of domain-specialist adapters improving general knowledge coverage. The GSM8K result is below the published baseline, consistent with the merged adapters not being math-specialized.
 
 Synapse-3B, published on HuggingFace at `djtony707/synapse-3b`, is a practical artifact: four domain-specialist QLoRA adapters merged via TIES into a single Qwen3-3B transformer. It uses conventional transformer architecture and should not be conflated with the novel Synapse Architecture modules.
+
+I built the entire system — architecture design, implementation, specialist training, TIES merging, benchmarking, and deployment — as an independent research effort, running on a single consumer-grade workstation (RTX 5090, i9-14900KF, 64 GB DDR5). No cloud compute, no institutional backing, no training cluster. This project is proof that meaningful AI architecture research is possible with consumer hardware and determination.
 
 The codebase is open source under the Apache 2.0 license. All source code, test results, and configuration files are available in the repository.
 
