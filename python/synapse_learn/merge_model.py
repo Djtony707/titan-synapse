@@ -341,8 +341,8 @@ model_type: qwen2
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-model = AutoModelForCausalLM.from_pretrained("Djtony707/synapse-3b")
-tokenizer = AutoTokenizer.from_pretrained("Djtony707/synapse-3b")
+model = AutoModelForCausalLM.from_pretrained("djtony707/synapse-3b")
+tokenizer = AutoTokenizer.from_pretrained("djtony707/synapse-3b")
 ```
 
 Or with TITAN Synapse engine:
@@ -355,7 +355,7 @@ synapse up
 
 Apache 2.0
 
-Built by [Tony Elliott](https://github.com/Djtony707) with TITAN Synapse.
+Built by [Tony Elliott](https://github.com/djtony707) with TITAN Synapse.
 """
     (output_dir / "README.md").write_text(card)
 
@@ -505,7 +505,7 @@ def export_gguf_native(model_dir: Path, output_path: Path):
     return output_path
 
 
-def push_to_hub(model_dir: Path, repo_name: str = "Djtony707/synapse-3b"):
+def push_to_hub(model_dir: Path, repo_name: str = "djtony707/synapse-3b"):
     """Push merged model to HuggingFace Hub."""
     from huggingface_hub import HfApi
 
@@ -532,7 +532,7 @@ def main():
                        help="GGUF quantization type (e.g., Q4_K_M, Q5_K_M, Q8_0)")
     parser.add_argument("--push", action="store_true",
                        help="Push to HuggingFace Hub after merge")
-    parser.add_argument("--repo", default="Djtony707/synapse-3b",
+    parser.add_argument("--repo", default="djtony707/synapse-3b",
                        help="HuggingFace repo name for push")
     args = parser.parse_args()
 
