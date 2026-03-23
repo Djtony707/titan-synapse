@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torch.cuda.amp import GradScaler
+from torch.amp import GradScaler
 
 from .config import SynapseModelConfig
 from .synapse_model import SynapseModel
@@ -82,7 +82,7 @@ class SynapseTrainer:
         print(f"Device: {self.device}")
         if self.device.type == "cuda":
             print(f"GPU: {torch.cuda.get_device_name()}")
-            print(f"VRAM: {torch.cuda.get_device_properties(0).total_mem / 1e9:.1f} GB")
+            print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
 
         # Model
         self.model = SynapseModel(model_config).to(self.device)
@@ -97,7 +97,7 @@ class SynapseTrainer:
         self.optimizer = self._create_optimizer()
 
         # Mixed precision
-        self.scaler = GradScaler(enabled=trainer_config.use_bf16 and self.device.type == "cuda")
+        self.scaler = GradScaler("cuda", enabled=trainer_config.use_bf16 and self.device.type == "cuda")
         self.autocast_dtype = torch.bfloat16 if trainer_config.use_bf16 else torch.float32
 
         # State
@@ -137,9 +137,11 @@ class SynapseTrainer:
 
             def make_checkpointed(orig_fn):
                 def checkpointed_forward(x, training=False):
-                    # checkpoint requires the function to not have side effects
-                    # with the state, so we need to handle this carefully
-                    return checkpoint(orig_fn, x, training, use_reentrant=False)
+                    # use_reentrant=True avoids tensor count/metadata verification
+                    # that fails with MoE routing's conditional paths (different
+                    # experts activate for different tokens → different tensor counts).
+                    # autocast context is automatically preserved with reentrant mode.
+                    return checkpoint(orig_fn, x, training, use_reentrant=True)
                 return checkpointed_forward
 
             layer.forward = make_checkpointed(original_forward)
